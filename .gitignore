@@ -1,0 +1,12 @@
+﻿node_modules/
+dist/
+.vite/
+.chrome-profile/
+.edge-profile/
+tests/outputs/
+tests/screenshots/
+tests/fixtures/
+tests/pylib/
+tests/wheels/
+*.log
+.DS_Store
