@@ -144,6 +144,100 @@ export function buildCitation(cover: CoverInfo): ResearchCitation {
   }
 }
 
+export interface CitationIssue {
+  citation: string
+  message: string
+}
+
+export interface CitationValidation {
+  checked: number
+  valid: number
+  issues: CitationIssue[]
+}
+
+/**
+ * Lightweight post-check for generated citations. It does not prove that a
+ * claim is supported; it only checks that the cited source/year/page exists in
+ * the excerpts that were actually sent to the model.
+ */
+export function validateResearchCitations(
+  output: string,
+  sources: ResearchSource[],
+): CitationValidation {
+  const normalizedOutput = normalizeDigits(output)
+  const matches = [
+    ...normalizedOutput.matchAll(/\(([^()]*?\b\d{4}\b[^()]*?)\)/g),
+  ]
+  const issues: CitationIssue[] = []
+  const seen = new Set<string>()
+  let checked = 0
+  let valid = 0
+
+  const addIssue = (citation: string, message: string) => {
+    const key = `${citation}|${message}`
+    if (seen.has(key)) return
+    seen.add(key)
+    issues.push({ citation: citation.trim(), message })
+  }
+
+  for (const match of matches) {
+    const inner = cleanDisplay(match[1])
+    const segments = inner.split(/[؛;]/g)
+    for (const rawSegment of segments) {
+      const segment = rawSegment.trim()
+      const years = [...segment.matchAll(/\b(1[89]\d{2}|20\d{2}|14\d{2})\b/g)]
+      if (years.length === 0) continue
+      checked += 1
+      const lastYear = years[years.length - 1]
+      const year = lastYear[0]
+      let before = segment.slice(0, lastYear.index ?? 0)
+      if (!before.replace(/[،,\s]/g, '')) continue
+      const citedIndex = before.lastIndexOf('نقلاً عن')
+      const citedIndexEn = before.toLowerCase().lastIndexOf('as cited in')
+      if (citedIndex >= 0) before = before.slice(citedIndex + 'نقلاً عن'.length)
+      if (citedIndexEn >= 0) before = before.slice(citedIndexEn + 'as cited in'.length)
+      const after = segment.slice((lastYear.index ?? 0) + 4)
+      const pageMatch = after.match(/:\s*([0-9]{1,4}(?:\s*[-–]\s*[0-9]{1,4})?)/)
+      const citationText = `(${segment})`
+      const source = sources.find((candidate) => {
+        if (candidate.citation.year !== year) return false
+        return candidate.citation.surnames.some((surname) => before.includes(surname))
+      }) ?? sources.find((candidate) => candidate.citation.year === year)
+
+      if (!source) {
+        addIssue(citationText, 'المصدر أو السنة غير موجودة في المقاطع المرفقة.')
+        continue
+      }
+      if (!pageMatch) {
+        addIssue(citationText, 'لا يوجد رقم صفحة مطبوع بعد السنة.')
+        continue
+      }
+
+      const pageText = pageMatch[1]
+      const pageNumbers = pageText
+        .split(/[-–]/g)
+        .map((page) => page.trim())
+        .filter(Boolean)
+      const knownPages = new Set(
+        source.pages.map((page) => page.printedPage).filter(Boolean),
+      )
+      const missing = pageNumbers.filter((page) => !knownPages.has(page))
+      if (knownPages.size === 0) {
+        addIssue(citationText, 'لا تتوفر أرقام صفحات مطبوعة لهذا المصدر في المقاطع.')
+      } else if (missing.length > 0) {
+        addIssue(
+          citationText,
+          `الصفحة ${missing.join('، ')} غير موجودة ضمن الصفحات المرفقة لهذا المصدر.`,
+        )
+      } else {
+        valid += 1
+      }
+    }
+  }
+
+  return { checked, valid, issues }
+}
+
 export interface ResearchPageSource {
   printedPage: string
   text: string

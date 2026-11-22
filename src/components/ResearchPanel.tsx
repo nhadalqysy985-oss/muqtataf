@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
   BookOpenCheck,
@@ -14,6 +14,7 @@ import { pagesPhrase } from '../lib/format'
 import {
   askResearcher,
   collectResearchSources,
+  validateResearchCitations,
 } from '../lib/research'
 
 interface ResearchPanelProps {
@@ -35,9 +36,13 @@ export function ResearchPanel({ results, apiKey, onUsage }: ResearchPanelProps) 
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
 
-  const sources = collectResearchSources(results)
+  const sources = useMemo(() => collectResearchSources(results), [results])
   const availablePages = sources.reduce((total, source) => total + source.pages.length, 0)
   const canWrite = sources.length > 0 && request.trim().length >= 3
+  const validation = useMemo(
+    () => (output ? validateResearchCitations(output, sources) : null),
+    [output, sources],
+  )
 
   useEffect(() => {
     setOutput('')
@@ -199,6 +204,43 @@ export function ResearchPanel({ results, apiKey, onUsage }: ResearchPanelProps) 
                 <div className="research-output" dir="auto">
                   {output}
                 </div>
+                {validation && (
+                  <div
+                    className={`research-validation ${
+                      validation.issues.length > 0 || validation.checked === 0
+                        ? 'has-issues'
+                        : 'is-valid'
+                    }`}
+                  >
+                    {validation.issues.length > 0 ? (
+                      <>
+                        <strong>
+                          تحقق آلي: {validation.issues.length} ملاحظة على الاقتباسات
+                        </strong>
+                        <ul>
+                          {validation.issues.map((issue, index) => (
+                            <li key={`${issue.citation}-${index}`}>
+                              <code>{issue.citation}</code>
+                              <span>{issue.message}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : validation.checked === 0 ? (
+                      <strong>
+                        تحقق آلي: لم أجد اقتباسات بالصيغة المطلوبة. راجع النص يدويًا.
+                      </strong>
+                    ) : (
+                      <strong>
+                        تحقق آلي: {validation.valid} اقتباسًا تشير إلى مصادر وصفحات موجودة في
+                        المقاطع.
+                      </strong>
+                    )}
+                    <em>
+                      هذا فحص تقريبي لوجود المصدر والصفحة، ولا يثبت صحة كل عبارة منسوبة.
+                    </em>
+                  </div>
+                )}
                 <p className="research-footnote">
                   راجع الاقتباسات وأرقام الصفحات قبل الاستخدام النهائي؛ الذكاء الاصطناعي قد يخطئ.
                 </p>

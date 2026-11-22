@@ -2641,6 +2641,63 @@ ul {
   font-size: 0.56rem;
   line-height: 1.7;
 }
+
+.research-validation {
+  margin-top: 10px;
+  padding: 9px 11px;
+  border-radius: 9px;
+  font-size: 0.58rem;
+  line-height: 1.8;
+}
+
+.research-validation.is-valid {
+  border: 1px solid #cfe3d8;
+  background: #eef6f1;
+  color: #0e5c4a;
+}
+
+.research-validation.has-issues {
+  border: 1px solid #efd6c6;
+  background: #fcf3ed;
+  color: #8b472f;
+}
+
+.research-validation strong {
+  display: block;
+  font-size: 0.62rem;
+}
+
+.research-validation ul {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.research-validation li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.research-validation code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(139, 71, 47, 0.08);
+  color: #6f3523;
+  font-family: var(--font-body);
+  font-size: 0.54rem;
+}
+
+.research-validation em {
+  display: block;
+  margin-top: 5px;
+  color: #9a8d79;
+  font-size: 0.5rem;
+  font-style: normal;
+}
 .how {
   padding-block: 66px 32px;
 }
