@@ -1,0 +1,15 @@
+﻿import { chromium } from 'playwright-core'
+import path from 'node:path'
+const root = path.resolve('muqtataf')
+const browser = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true })
+const page = await browser.newPage({ viewport: { width: 390, height: 844 }, acceptDownloads: true, isMobile: true, hasTouch: true })
+await page.goto('http://127.0.0.1:4178/', { waitUntil: 'networkidle' })
+await page.setInputFiles('input[type=file]', path.join(root, 'tests/fixtures/study1.pdf'))
+await page.fill('#topic', 'مفهوم القيادة التحويلية')
+await page.screenshot({ path: path.join(root, 'tests/screenshots/16-mobile-word-option.png'), fullPage: true })
+await page.click('button.start-button')
+await page.waitForSelector('.result-card', { timeout: 120000 })
+await page.screenshot({ path: path.join(root, 'tests/screenshots/17-mobile-word-result.png'), fullPage: true })
+console.log('word buttons=', await page.locator('.result-card a.button-word').count())
+console.log('overflow=', await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth))
+await browser.close()

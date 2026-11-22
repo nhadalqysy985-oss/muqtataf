@@ -10,7 +10,9 @@ import {
 } from './pdf'
 import type { PageText } from './pdf'
 import { makeSnippet, normalizeArabic, scorePage } from './text'
+import { buildWordDocument } from './word'
 import type {
+  ExtractionOptions,
   FileProgress,
   PageMatch,
   Sensitivity,
@@ -34,6 +36,7 @@ export async function extractSource(
   topics: Topic[],
   sensitivity: Sensitivity,
   onProgress: (progress: FileProgress) => void,
+  options: ExtractionOptions = {},
 ): Promise<SourceResult> {
   const bytes = new Uint8Array(await source.file.arrayBuffer())
   const loaded = await loadPdf(bytes)
@@ -76,12 +79,17 @@ export async function extractSource(
     }
 
     const repeatedEdgeLines = findRepeatedEdgeLines(pageTexts)
+    const titleKey = normalizeArabic(cover.title)
 
     for (let index = 1; index < pageTexts.length; index += 1) {
       const pageText = pageTexts[index]
-      const keptLines = pageText.coverLines.filter(
-        (line) => !repeatedEdgeLines.has(lineRepeatKey(line.text)),
-      )
+      const keptLines = pageText.coverLines.filter((line) => {
+        const key = lineRepeatKey(line.text)
+        if (repeatedEdgeLines.has(key)) return false
+        const isEdge = line.y > pageText.height * 0.78 || line.y < pageText.height * 0.22
+        if (isEdge && titleKey.length > 10 && key.includes(titleKey)) return false
+        return true
+      })
       const searchableText = keptLines.map((line) => line.text).join('\n')
       const scored = scorePage([normalizeArabic(searchableText)], topics, sensitivity)
       if (scored.matched.length > 0) {
@@ -111,6 +119,35 @@ export async function extractSource(
 
     onProgress({ stage: 'building', value: 0.88 })
 
+    const base = sanitizeFilename(source.name.replace(/\.pdf$/i, '')) || 'مصدر'
+    const matchedTopics = [...new Set(matches.flatMap((match) => match.topics))]
+    let wordBlob: Blob | undefined
+    let wordUrl: string | undefined
+    let wordName: string | undefined
+    let wordPageCount: number | undefined
+    let wordError: string | undefined
+
+    if (options.includeWord) {
+      const wordPages = options.wordAllPages
+        ? pageTexts.map((page) => page.pageNumber)
+        : [1, ...matches.map((match) => match.pageNumber)]
+      try {
+        wordBlob = await buildWordDocument({
+          fileName: source.name,
+          cover,
+          pages: pageTexts,
+          pageNumbers: wordPages,
+          repeatedEdgeLines,
+          topicLabels: topics.map((topic) => topic.display),
+        })
+        wordUrl = URL.createObjectURL(wordBlob)
+        wordName = `${base} — نص.docx`
+        wordPageCount = wordPages.length
+      } catch {
+        wordError = 'تعذّر إنشاء نسخة Word لهذا المصدر؛ ملف PDF جاهز كما هو.'
+      }
+    }
+
     const output = await PDFDocument.create()
     const sourceDoc = await PDFDocument.load(bytes, { ignoreEncryption: true })
     const pageIndexes = [0, ...matches.map((match) => match.pageNumber - 1)]
@@ -128,9 +165,6 @@ export async function extractSource(
     const outputBytes = await output.save()
     const outputBlob = new Blob([outputBytes as BlobPart], { type: 'application/pdf' })
 
-    const base = sanitizeFilename(source.name.replace(/\.pdf$/i, '')) || 'مصدر'
-    const matchedTopics = [...new Set(matches.flatMap((match) => match.topics))]
-
     let warning: string | undefined
     if (textPages === 0) {
       warning = 'هذا الملف يبدو ممسوحًا ضوئيًا ولا يحتوي على نص قابل للبحث؛ أُرفق الغلاف فقط. يمكن البحث يدويًا في صفحاته.'
@@ -146,6 +180,8 @@ export async function extractSource(
         : 'لم تُعثر صفحات مطابقة للموضوع؛ الملف الناتج يضم الغلاف فقط.'
     }
 
+    if (wordError) warning = warning ? `${warning} ${wordError}` : wordError
+
     onProgress({ stage: 'done', value: 1 })
 
     return {
@@ -159,6 +195,10 @@ export async function extractSource(
       outputBlob,
       outputUrl: URL.createObjectURL(outputBlob),
       outputName: `${base} — مقتطف.pdf`,
+      wordBlob,
+      wordUrl,
+      wordName,
+      wordPageCount,
       thumbnailUrl,
       warning,
     }
@@ -179,6 +219,16 @@ export async function buildZip(results: SourceResult[]): Promise<Blob> {
     }
     used.add(name)
     zip.file(name, result.outputBlob)
+    if (result.wordBlob && result.wordName) {
+      let wordName = result.wordName
+      let wordCounter = 2
+      while (used.has(wordName)) {
+        wordName = result.wordName.replace(/\.docx$/i, ` (${wordCounter}).docx`)
+        wordCounter += 1
+      }
+      used.add(wordName)
+      zip.file(wordName, result.wordBlob)
+    }
   }
   zip.file(
     'بيانات_المقتطفات.txt',
@@ -196,6 +246,9 @@ export async function buildZip(results: SourceResult[]): Promise<Blob> {
             result.matches.length > 0
               ? result.matches.map((match) => match.pageNumber).join('، ')
               : 'لا توجد'
+          }`,
+          `نسخة Word: ${
+            result.wordPageCount ? `${result.wordPageCount} صفحة` : 'غير مطلوبة'
           }`,
           '',
         ].join('\n'),

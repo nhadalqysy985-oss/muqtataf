@@ -998,6 +998,128 @@ ul {
   opacity: 0.55;
 }
 
+/* Word export option */
+.word-option {
+  margin-top: 14px;
+  padding: 11px 12px;
+  border: 1px solid #e0d7c7;
+  border-radius: 11px;
+  background: rgba(255, 253, 248, 0.55);
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+
+.word-option.is-on {
+  border-color: #c8dcd2;
+  background: rgba(231, 240, 234, 0.42);
+}
+
+.word-toggle {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  cursor: pointer;
+}
+
+.word-toggle input {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.toggle-track {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  width: 31px;
+  height: 18px;
+  margin-top: 2px;
+  border-radius: 999px;
+  background: #d9d1c2;
+  transition: background 0.2s ease;
+}
+
+.toggle-track span {
+  position: absolute;
+  top: 3px;
+  inset-inline-start: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fffdf8;
+  box-shadow: 0 1px 3px rgba(22, 36, 31, 0.25);
+  transition: transform 0.2s ease;
+}
+
+.word-toggle input:checked + .toggle-track {
+  background: var(--green);
+}
+
+.word-toggle input:checked + .toggle-track span {
+  transform: translateX(-13px);
+}
+
+[dir='rtl'] .word-toggle input:checked + .toggle-track span {
+  transform: translateX(-13px);
+}
+
+.word-toggle input:focus-visible + .toggle-track {
+  outline: 2px solid var(--green);
+  outline-offset: 3px;
+}
+
+.word-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.word-copy strong {
+  color: var(--ink-soft);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.word-copy small {
+  color: #8f8370;
+  font-size: 0.57rem;
+  line-height: 1.7;
+}
+
+.word-scope {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px dashed #d8e2da;
+}
+
+.word-scope-label {
+  color: #8f8370;
+  font-size: 0.58rem;
+}
+
+.segmented-mini {
+  flex: 1;
+  min-width: 185px;
+  margin-top: 0;
+  padding: 2px;
+}
+
+.segmented-mini button {
+  padding: 5px 6px;
+  font-size: 0.58rem;
+}
+
 .start-block {
   margin-top: 18px;
   padding-top: 17px;
@@ -1109,6 +1231,18 @@ ul {
 
 .button-primary:hover:not(:disabled) {
   background: var(--green-deep);
+}
+
+.button-word {
+  border-color: #c8dcd2;
+  background: #edf4f0;
+  color: #0c5343;
+}
+
+.button-word:hover:not(:disabled) {
+  border-color: var(--green);
+  background: #e2efe8;
+  color: var(--green-deep);
 }
 
 .button-secondary {

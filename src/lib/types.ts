@@ -1,4 +1,4 @@
-﻿export type Sensitivity = 'strict' | 'balanced' | 'broad'
+export type Sensitivity = 'strict' | 'balanced' | 'broad'
 
 export interface SourceFile {
   id: string
@@ -46,8 +46,17 @@ export interface SourceResult {
   outputBlob: Blob
   outputUrl: string
   outputName: string
+  wordBlob?: Blob
+  wordUrl?: string
+  wordName?: string
+  wordPageCount?: number
   thumbnailUrl?: string
   warning?: string
+}
+
+export interface ExtractionOptions {
+  includeWord?: boolean
+  wordAllPages?: boolean
 }
 
 export interface FileFailure {

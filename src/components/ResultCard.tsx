@@ -125,6 +125,12 @@ export function ResultCard({ result, index }: ResultCardProps) {
           <Download size={16} />
           {hasMatches ? 'تنزيل المقتطف' : 'تنزيل الغلاف'}
         </a>
+        {result.wordUrl && result.wordName && (
+          <a className="button button-word button-small" href={result.wordUrl} download={result.wordName}>
+            <FileText size={16} />
+            نسخة Word
+          </a>
+        )}
         <a
           className="button button-ghost button-small"
           href={result.outputUrl}

@@ -1,0 +1,28 @@
+﻿<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body { margin: 0; background: #e9e6df; font-family: Arial, sans-serif; }
+    #container { padding: 24px; }
+  </style>
+</head>
+<body>
+  <div id="container"></div>
+  <script type="module">
+    import { renderAsync } from 'docx-preview'
+    const response = await fetch('./outputs/study1-word.docx')
+    const blob = await response.blob()
+    await renderAsync(blob, document.getElementById('container'), null, {
+      inWrapper: true,
+      breakPages: true,
+      ignoreWidth: false,
+      ignoreHeight: false,
+      renderHeaders: true,
+      renderFooters: true,
+      useBase64URL: true,
+    })
+    document.title = 'rendered'
+  </script>
+</body>
+</html>

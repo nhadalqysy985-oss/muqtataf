@@ -98,6 +98,8 @@ function App() {
   const [files, setFiles] = useState<SourceFile[]>([])
   const [topicInput, setTopicInput] = useState('')
   const [sensitivity, setSensitivity] = useState<Sensitivity>('balanced')
+  const [includeWord, setIncludeWord] = useState(true)
+  const [wordScope, setWordScope] = useState<'extracted' | 'all'>('extracted')
   const [phase, setPhase] = useState<'idle' | 'processing' | 'done'>('idle')
   const [results, setResults] = useState<SourceResult[]>([])
   const [failures, setFailures] = useState<FileFailure[]>([])
@@ -135,7 +137,10 @@ function App() {
   }, [])
 
   const revokeResults = (items: SourceResult[]) => {
-    for (const result of items) URL.revokeObjectURL(result.outputUrl)
+    for (const result of items) {
+      URL.revokeObjectURL(result.outputUrl)
+      if (result.wordUrl) URL.revokeObjectURL(result.wordUrl)
+    }
   }
 
   const clearResults = () => {
@@ -220,6 +225,16 @@ function App() {
     if (phase === 'done') clearResults()
   }
 
+  const updateWordOption = (enabled: boolean) => {
+    setIncludeWord(enabled)
+    if (phase === 'done') clearResults()
+  }
+
+  const updateWordScope = (value: 'extracted' | 'all') => {
+    setWordScope(value)
+    if (phase === 'done') clearResults()
+  }
+
   const startExtraction = async () => {
     if (phase === 'processing') return
     if (files.length === 0) {
@@ -268,6 +283,9 @@ function App() {
                 }
               : current,
           )
+        }, {
+          includeWord,
+          wordAllPages: wordScope === 'all',
         })
         setResultsSafe((current) => [...current, result])
       } catch (error) {
@@ -539,11 +557,52 @@ function App() {
                 </div>
               </div>
 
+              <div className={`word-option ${includeWord ? 'is-on' : ''}`}>
+                <label className="word-toggle">
+                  <input
+                    type="checkbox"
+                    checked={includeWord}
+                    onChange={(event) => updateWordOption(event.target.checked)}
+                    disabled={phase === 'processing'}
+                  />
+                  <span className="toggle-track" aria-hidden="true">
+                    <span />
+                  </span>
+                  <span className="word-copy">
+                    <strong>أضف نسخة Word</strong>
+                    <small>نص كل صفحة مع رقمها الأصلي، بتنسيق RTL تقريبي.</small>
+                  </span>
+                </label>
+                {includeWord && (
+                  <div className="word-scope">
+                    <span className="word-scope-label">نطاق Word</span>
+                    <div className="segmented segmented-mini" role="group" aria-label="نطاق ملف Word">
+                      <button
+                        type="button"
+                        className={wordScope === 'extracted' ? 'is-active' : ''}
+                        onClick={() => updateWordScope('extracted')}
+                        disabled={phase === 'processing'}
+                      >
+                        الصفحات المستخرجة
+                      </button>
+                      <button
+                        type="button"
+                        className={wordScope === 'all' ? 'is-active' : ''}
+                        onClick={() => updateWordScope('all')}
+                        disabled={phase === 'processing'}
+                      >
+                        كل صفحات المصدر
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="start-block">
                 <StepHeader
                   number="03"
                   title="الاستخراج"
-                  subtitle="لكل مصدر ملف PDF مستقل: الغلاف + الصفحات ذات الصلة."
+                  subtitle="ملف PDF مستقل لكل مصدر، مع نسخة Word قابلة للتعديل عند اختيارها."
                 />
                 <button
                   type="button"
@@ -732,8 +791,8 @@ function App() {
               </span>
               <h3>نزّل المقتطفات</h3>
               <p>
-                لكل مصدر ملف PDF مستقل يضم الغلاف وبيانات الباحث والسنة والصفحات ذات الصلة، مع إمكانية
-                تنزيل الكل.
+                لكل مصدر ملف PDF مستقل يضم الغلاف وبيانات الباحث والسنة والصفحات ذات الصلة، مع
+                إمكانية إضافة نسخة Word وتنزيل الكل.
               </p>
             </article>
           </div>

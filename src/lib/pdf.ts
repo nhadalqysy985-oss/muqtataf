@@ -18,6 +18,8 @@ export interface CoverLine {
   text: string
   y: number
   size: number
+  x: number
+  width: number
 }
 
 export interface PageText {
@@ -89,10 +91,14 @@ export async function readPageText(page: PDFPageProxy, pageNumber: number): Prom
     if (!desc.trim() && !asc.trim()) continue
     descLines.push(desc)
     ascLines.push(asc)
+    const left = Math.min(...row.items.map((item) => item.x))
+    const right = Math.max(...row.items.map((item) => item.x + item.width))
     coverLines.push({
       text: desc,
       y: row.y,
       size: Math.max(...row.items.map((item) => item.size), 8),
+      x: left,
+      width: Math.max(1, right - left),
     })
   }
 

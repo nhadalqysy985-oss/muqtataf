@@ -1,4 +1,4 @@
-﻿import { chromium } from 'playwright-core'
+import { chromium } from 'playwright-core'
 import fs from 'node:fs'
 import path from 'node:path'
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs'
@@ -52,7 +52,7 @@ const cards = await page.$$eval('.result-card', (nodes) =>
 )
 console.log('CARDS:', JSON.stringify(cards, null, 2))
 
-const downloadLinks = await page.$$('.result-card a[download]')
+const downloadLinks = await page.$$('.result-card a[download$=".pdf"]')
 for (let index = 0; index < downloadLinks.length; index += 1) {
   const [download] = await Promise.all([
     page.waitForEvent('download'),
