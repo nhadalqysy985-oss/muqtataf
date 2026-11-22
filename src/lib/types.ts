@@ -46,18 +46,9 @@ export interface SourceResult {
   outputBlob: Blob
   outputUrl: string
   outputName: string
-  wordBlob?: Blob
-  wordUrl?: string
-  wordName?: string
-  wordPageCount?: number
-  textQuality?: 'good' | 'fair' | 'poor'
+  ocrPageCount: number
   thumbnailUrl?: string
   warning?: string
-}
-
-export interface ExtractionOptions {
-  includeWord?: boolean
-  wordAllPages?: boolean
 }
 
 export interface FileFailure {
@@ -68,6 +59,7 @@ export interface FileFailure {
 
 export type ProcessingStage =
   | 'reading'
+  | 'ocr'
   | 'cover'
   | 'searching'
   | 'building'
@@ -80,6 +72,7 @@ export interface FileProgress {
 
 export const STAGE_LABELS: Record<ProcessingStage, string> = {
   reading: 'قراءة الملف',
+  ocr: 'OCR عبر DeepSeek',
   cover: 'تحليل الغلاف',
   searching: 'البحث في الصفحات',
   building: 'تجميع الملف',

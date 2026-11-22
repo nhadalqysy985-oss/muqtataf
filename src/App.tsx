@@ -5,10 +5,14 @@ import {
   BookOpen,
   CheckCircle2,
   Download,
+  Eye,
+  EyeOff,
+  ExternalLink,
   FileSearch,
   FileStack,
   Files,
   Info,
+  KeyRound,
   Loader2,
   Lock,
   Package,
@@ -19,7 +23,6 @@ import {
   X,
 } from 'lucide-react'
 import { FileDropzone } from './components/FileDropzone'
-import { OcrDialog } from './components/OcrDialog'
 import { ResultCard } from './components/ResultCard'
 import { buildZip, downloadBlob, extractSource } from './lib/extract'
 import { extractsPhrase, pagesPhrase } from './lib/format'
@@ -36,6 +39,7 @@ import { STAGE_LABELS } from './lib/types'
 
 const MAX_FILES = 8
 const MAX_SIZE = 15 * 1024 * 1024
+const API_KEY_STORAGE = 'muqtataf.deepseek.apiKey'
 const EXAMPLES = ['مفهوم القيادة التحويلية', 'الرضا الوظيفي', 'الالتزام التنظيمي', 'جودة الخدمة']
 
 interface RunProgress {
@@ -52,7 +56,7 @@ interface ToastState {
   tone: 'error' | 'warning' | 'success'
 }
 
-const STAGE_ORDER: ProcessingStage[] = ['reading', 'cover', 'searching', 'building']
+const STAGE_ORDER: ProcessingStage[] = ['reading', 'ocr', 'cover', 'searching', 'building']
 
 function friendlyError(error: unknown): string {
   const name = (error as { name?: string } | null)?.name ?? ''
@@ -99,8 +103,21 @@ function App() {
   const [files, setFiles] = useState<SourceFile[]>([])
   const [topicInput, setTopicInput] = useState('')
   const [sensitivity, setSensitivity] = useState<Sensitivity>('balanced')
-  const [includeWord, setIncludeWord] = useState(true)
-  const [wordScope, setWordScope] = useState<'extracted' | 'all'>('extracted')
+  const [apiKey, setApiKey] = useState(() => {
+    try {
+      return localStorage.getItem(API_KEY_STORAGE) ?? ''
+    } catch {
+      return ''
+    }
+  })
+  const [rememberKey, setRememberKey] = useState(() => {
+    try {
+      return Boolean(localStorage.getItem(API_KEY_STORAGE))
+    } catch {
+      return false
+    }
+  })
+  const [showKey, setShowKey] = useState(false)
   const [phase, setPhase] = useState<'idle' | 'processing' | 'done'>('idle')
   const [results, setResults] = useState<SourceResult[]>([])
   const [failures, setFailures] = useState<FileFailure[]>([])
@@ -108,7 +125,6 @@ function App() {
   const [toast, setToast] = useState<ToastState | null>(null)
   const [zipping, setZipping] = useState(false)
   const [cancelling, setCancelling] = useState(false)
-  const [ocrOpen, setOcrOpen] = useState(false)
 
   const resultsRef = useRef<SourceResult[]>([])
   const cancelRef = useRef(false)
@@ -133,16 +149,22 @@ function App() {
   }, [toast])
 
   useEffect(() => {
+    try {
+      if (rememberKey && apiKey.trim()) localStorage.setItem(API_KEY_STORAGE, apiKey.trim())
+      else localStorage.removeItem(API_KEY_STORAGE)
+    } catch {
+      // Local storage may be disabled by the browser.
+    }
+  }, [apiKey, rememberKey])
+
+  useEffect(() => {
     return () => {
       for (const result of resultsRef.current) URL.revokeObjectURL(result.outputUrl)
     }
   }, [])
 
   const revokeResults = (items: SourceResult[]) => {
-    for (const result of items) {
-      URL.revokeObjectURL(result.outputUrl)
-      if (result.wordUrl) URL.revokeObjectURL(result.wordUrl)
-    }
+    for (const result of items) URL.revokeObjectURL(result.outputUrl)
   }
 
   const clearResults = () => {
@@ -227,18 +249,12 @@ function App() {
     if (phase === 'done') clearResults()
   }
 
-  const updateWordOption = (enabled: boolean) => {
-    setIncludeWord(enabled)
-    if (phase === 'done') clearResults()
-  }
-
-  const updateWordScope = (value: 'extracted' | 'all') => {
-    setWordScope(value)
-    if (phase === 'done') clearResults()
-  }
-
   const startExtraction = async () => {
     if (phase === 'processing') return
+    if (!apiKey.trim()) {
+      showToast('أدخل مفتاح DeepSeek API أولًا.')
+      return
+    }
     if (files.length === 0) {
       showToast('أضف ملف PDF واحدًا على الأقل قبل البدء.')
       return
@@ -274,21 +290,24 @@ function App() {
       })
 
       try {
-        const result = await extractSource(entry, topics, sensitivity, (update: FileProgress) => {
-          setProgress((current) =>
-            current
-              ? {
-                  ...current,
-                  stage: update.stage,
-                  fileValue: update.value,
-                  overall: ((index + update.value) / files.length) * 100,
-                }
-              : current,
-          )
-        }, {
-          includeWord,
-          wordAllPages: wordScope === 'all',
-        })
+        const result = await extractSource(
+          entry,
+          topics,
+          apiKey,
+          sensitivity,
+          (update: FileProgress) => {
+            setProgress((current) =>
+              current
+                ? {
+                    ...current,
+                    stage: update.stage,
+                    fileValue: update.value,
+                    overall: ((index + update.value) / files.length) * 100,
+                  }
+                : current,
+            )
+          },
+        )
         setResultsSafe((current) => [...current, result])
       } catch (error) {
         setFailures((current) => [
@@ -350,7 +369,11 @@ function App() {
     return { withMatches, pages }
   }, [results])
 
-  const canStart = files.length > 0 && topicInput.trim().length >= 2 && phase !== 'processing'
+  const canStart =
+    files.length > 0 &&
+    topicInput.trim().length >= 2 &&
+    apiKey.trim().length > 0 &&
+    phase !== 'processing'
   const currentStageIndex = progress ? STAGE_ORDER.indexOf(progress.stage) : -1
 
   return (
@@ -371,7 +394,7 @@ function App() {
           </nav>
           <a className="header-privacy" href="#privacy">
             <ShieldCheck size={15} />
-            معالجة محلية 100%
+            API بمفتاحك
           </a>
         </div>
       </header>
@@ -389,8 +412,9 @@ function App() {
               <span className="accent">الصفحات التي تهمّك فقط.</span>
             </h1>
             <p className="hero-lede">
-              ارفع حتى 8 ملفات PDF، واكتب الموضوع أو المتغير المشترك. تقرأ الأداة كل مصدر على حدة،
-              تلتقط الغلاف واسم الباحث والسنة، ثم تجمع لك مقتطفًا مستقلًا يضم الصفحات ذات الصلة فقط.
+              ارفع حتى 8 ملفات PDF، واكتب الموضوع أو المتغير المشترك. يقرأ DeepSeek كل مصدر
+              على حدة، ويستخرج الغلاف واسم الباحث والسنة، ثم يُبنى لك مقتطف مستقل يضم الصفحات
+              ذات الصلة فقط.
             </p>
             <ul className="hero-facts">
               <li>
@@ -403,7 +427,7 @@ function App() {
               </li>
               <li>
                 <Lock size={16} />
-                بلا رفع إلى خادم
+                المفتاح عندك
               </li>
             </ul>
           </div>
@@ -461,7 +485,7 @@ function App() {
             </div>
             <span className="local-note">
               <Lock size={14} />
-              ملفاتك لا تغادر جهازك
+              المعالجة عبر DeepSeek بمفتاحك
             </span>
           </div>
 
@@ -559,60 +583,66 @@ function App() {
                 </div>
               </div>
 
-              <div className={`word-option ${includeWord ? 'is-on' : ''}`}>
-                <label className="word-toggle">
+              <div className="api-panel">
+                <div className="api-head">
+                  <span className="field-label">
+                    <KeyRound size={14} />
+                    مفتاح DeepSeek API
+                  </span>
+                  <a
+                    href="https://platform.deepseek.com/api_keys"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    احصل على مفتاح
+                    <ExternalLink size={12} />
+                  </a>
+                </div>
+                <div className="api-input">
+                  <KeyRound size={15} />
                   <input
-                    type="checkbox"
-                    checked={includeWord}
-                    onChange={(event) => updateWordOption(event.target.checked)}
+                    type={showKey ? 'text' : 'password'}
+                    value={apiKey}
+                    onChange={(event) => setApiKey(event.target.value)}
+                    placeholder="sk-..."
+                    dir="ltr"
+                    autoComplete="off"
+                    spellCheck={false}
                     disabled={phase === 'processing'}
+                    aria-label="مفتاح DeepSeek API"
                   />
-                  <span className="toggle-track" aria-hidden="true">
-                    <span />
-                  </span>
-                  <span className="word-copy">
-                    <strong>أضف نسخة Word</strong>
-                    <small>نص كل صفحة مع رقمها الأصلي، بتنسيق RTL تقريبي.</small>
-                  </span>
-                </label>
-                {includeWord && (
-                  <div className="word-scope">
-                    <span className="word-scope-label">نطاق Word</span>
-                    <div className="segmented segmented-mini" role="group" aria-label="نطاق ملف Word">
-                      <button
-                        type="button"
-                        className={wordScope === 'extracted' ? 'is-active' : ''}
-                        onClick={() => updateWordScope('extracted')}
-                        disabled={phase === 'processing'}
-                      >
-                        الصفحات المستخرجة
-                      </button>
-                      <button
-                        type="button"
-                        className={wordScope === 'all' ? 'is-active' : ''}
-                        onClick={() => updateWordScope('all')}
-                        disabled={phase === 'processing'}
-                      >
-                        كل صفحات المصدر
-                      </button>
-                    </div>
-                  </div>
-                )}
-                <button
-                  type="button"
-                  className="ocr-link"
-                  onClick={() => setOcrOpen(true)}
-                  disabled={phase === 'processing'}
-                >
-                  النص تالف أو ممسوح؟ جرّب OCR وإنشاء Word
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowKey((current) => !current)}
+                    disabled={phase === 'processing'}
+                    aria-label={showKey ? 'إخفاء المفتاح' : 'إظهار المفتاح'}
+                    title={showKey ? 'إخفاء المفتاح' : 'إظهار المفتاح'}
+                  >
+                    {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                <div className="api-options">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={rememberKey}
+                      onChange={(event) => setRememberKey(event.target.checked)}
+                      disabled={phase === 'processing'}
+                    />
+                    حفظ المفتاح على هذا الجهاز
+                  </label>
+                  <span>‎$0.225 / 1000 صفحة</span>
+                </div>
+                <p className="api-note">
+                  يُرسَل الملف إلى DeepSeek مباشرة بمفتاحك. لا يمر عبر خادمنا، ولا نخزّن الملفات.
+                </p>
               </div>
 
               <div className="start-block">
                 <StepHeader
                   number="03"
                   title="الاستخراج"
-                  subtitle="ملف PDF مستقل لكل مصدر، مع نسخة Word قابلة للتعديل عند اختيارها."
+                  subtitle="يقرأ DeepSeek الملف ويبحث عن الموضوع، ثم يُبنى ملف PDF مستقل لكل مصدر."
                 />
                 <button
                   type="button"
@@ -630,7 +660,7 @@ function App() {
                 </button>
                 <p className="privacy-line">
                   <ShieldCheck size={14} />
-                  تتم القراءة والبحث وإنشاء الملفات داخل متصفحك فقط.
+                  المعالجة تتم عبر DeepSeek API باستخدام مفتاحك الخاص.
                 </p>
               </div>
             </div>
@@ -790,8 +820,8 @@ function App() {
               </span>
               <h3>حدّد الموضوع</h3>
               <p>
-                اكتب المفهوم أو المتغير المشترك. تتعرّف الأداة على صيغ الكلمة المختلفة وتتجاوز
-                التشكيل واختلاف الهمزات.
+                اكتب المفهوم أو المتغير المشترك. يطابق البحث صيغ الكلمة المختلفة ويتجاوز التشكيل
+                واختلاف الهمزات.
               </p>
             </article>
             <article className="how-card">
@@ -802,7 +832,7 @@ function App() {
               <h3>نزّل المقتطفات</h3>
               <p>
                 لكل مصدر ملف PDF مستقل يضم الغلاف وبيانات الباحث والسنة والصفحات ذات الصلة، مع
-                إمكانية إضافة نسخة Word وتنزيل الكل.
+                إمكانية تنزيل الكل.
               </p>
             </article>
           </div>
@@ -814,33 +844,34 @@ function App() {
               <ShieldCheck size={30} />
             </span>
             <div className="privacy-copy">
-              <span className="section-kicker">الخصوصية أولًا</span>
-              <h2>ملفاتك تبقى عندك</h2>
+              <span className="section-kicker">معالجة شفافة</span>
+              <h2>ملفاتك تُرسل إلى DeepSeek بمفتاحك</h2>
               <p>
-                لا يُرفع أي PDF إلى خادم، ولا يُخزَّن أي نص. تقرأ الأداة الملفات وتبحث وتُنشئ الملفات
-                الجديدة داخل ذاكرة المتصفح، وتختفي كلها بمجرد إغلاق الصفحة أو بدء جلسة جديدة.
+                يستخدم الموقع مفتاح DeepSeek API الذي تدخله أنت. تُرسل ملفات PDF مباشرة إلى
+                DeepSeek لاستخراج النص، ولا تمر عبر خادم تابع لنا. يُحفظ المفتاح في متصفحك فقط
+                إذا اخترت ذلك، وتخضع معالجة الملفات لسياسة DeepSeek.
               </p>
             </div>
             <ul className="privacy-points">
               <li>
                 <CheckCircle2 size={16} />
-                بلا حسابات أو تسجيل دخول
+                بلا حسابات على موقعنا
               </li>
               <li>
                 <CheckCircle2 size={16} />
-                بلا تتبّع أو إعلانات
+                لا نخزّن ملفاتك أو نصوصها
               </li>
               <li>
                 <CheckCircle2 size={16} />
-                ملفاتك تبقى داخل جهازك
+                المفتاح يبقى في متصفحك
               </li>
             </ul>
           </div>
           <div className="limit-note">
             <BookOpen size={18} />
             <p>
-              <strong>ملاحظة أكاديمية:</strong> الملفات الممسوحة ضوئيًا بلا طبقة نص لا يمكن البحث داخل
-              محتواها؛ تُضمَّن أغلفتها ويظهر تنبيه بذلك. راجع دائمًا الصفحات المستخرجة قبل الاقتباس.
+              <strong>ملاحظة أكاديمية:</strong> جودة OCR تعتمد على وضوح الملف. راجع دائمًا الصفحات
+              المستخرجة قبل الاقتباس، وتحقق من سياسة خصوصية DeepSeek قبل رفع رسائل حساسة.
             </p>
           </div>
         </section>
@@ -877,8 +908,6 @@ function App() {
           </button>
         </div>
       )}
-
-      <OcrDialog open={ocrOpen} onClose={() => setOcrOpen(false)} />
     </div>
   )
 }

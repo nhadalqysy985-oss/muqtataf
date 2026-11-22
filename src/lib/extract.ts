@@ -1,19 +1,11 @@
 import { PDFDocument } from 'pdf-lib'
 import JSZip from 'jszip'
-import {
-  extractCover,
-  findRepeatedEdgeLines,
-  lineRepeatKey,
-  loadPdf,
-  readPageText,
-  renderThumbnail,
-} from './pdf'
-import type { PageText } from './pdf'
+import { loadPdf, renderThumbnail } from './pdf'
+import { ocrWithDeepSeek } from './deepseek'
 import { makeSnippet, normalizeArabic, scorePage } from './text'
-import { buildWordDocument } from './word'
-import { assessTextQuality } from './quality'
+import { cleanDisplay, normalizeDigits } from './text'
 import type {
-  ExtractionOptions,
+  CoverInfo,
   FileProgress,
   PageMatch,
   Sensitivity,
@@ -22,7 +14,68 @@ import type {
   Topic,
 } from './types'
 
-const sleep = (ms = 0) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+const AUTHOR_MARKER =
+  /(?:^|\s)(?:من\s+|قام\s+ب)?(?:إعداد|اعداد|أعداد)\s*(?:الطالبات|الطالب(?:ة|\/ة)?|الطلبة|الباحث(?:ة|\/ة)?|الباحثين)?\s*[:\-–]?\s*(.*)$/u
+
+const BOILERPLATE =
+  /(جامعه|كليه|قسم|معهد|وزاره|الجمهوريه|رساله|اطروحه|ماجستير|دكتوراه|دبلوم|بكالوريوس|جزء من متطلبات|نيل شهاده|بسم الله|الرحمن|الرحيم)/
+
+const DEGREE = /(ماجستير|دكتوراه|دبلوم|بكالوريوس)/
+
+function pageLines(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => cleanDisplay(line))
+    .filter((line) => line.length > 0)
+}
+
+function extractAuthors(lines: string[]): string {
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]
+    const match = line.match(AUTHOR_MARKER)
+    if (match) {
+      const inline = cleanDisplay(match[1] ?? '')
+        .replace(/\s*(?:إشراف|اشراف|المشرف|لجنة المناقشة)\s*[:：].*$/u, '')
+        .replace(/^[:\-–،.\s]+|[:\-–،.\s]+$/g, '')
+        .trim()
+      if (inline.length >= 3 && inline.length <= 100) return inline
+      const next = lines[index + 1]
+      if (next && next.length >= 3 && next.length <= 100) return next
+    }
+  }
+  return ''
+}
+
+function extractCover(pages: Array<{ index: number; text: string }>, fileName: string): CoverInfo {
+  const first = pages.find((page) => page.index === 0)
+  const lines = pageLines(first?.text ?? '')
+  const fallback = fileName.replace(/\.pdf$/i, '').replace(/[_-]+/g, ' ').trim() || 'مصدر بدون عنوان'
+
+  const authorIndex = lines.findIndex((line) => AUTHOR_MARKER.test(line))
+  const limit = authorIndex > 0 ? authorIndex : Math.min(lines.length, 12)
+  const titleCandidates = lines
+    .slice(0, limit)
+    .filter((line) => line.length >= 8 && line.length <= 180)
+    .filter((line) => !BOILERPLATE.test(normalizeArabic(line)))
+    .filter((line) => !/^(?:doi|issn|https?)/i.test(line))
+    .sort((a, b) => b.length - a.length)
+  const title = titleCandidates[0] ?? fallback
+
+  const normalizedAll = normalizeArabic(lines.join(' '))
+  const yearMatch = normalizeDigits(lines.join(' ')).match(/(?<!\d)(19|20)\d{2}(?!\d)/)
+  const universityLine = lines.find((line) => /(جامعه|كليه|معهد)/.test(normalizeArabic(line)))
+  const degree = DEGREE.exec(normalizedAll)?.[1]
+
+  return {
+    title,
+    authors: extractAuthors(lines),
+    year: yearMatch ? `${yearMatch[0]}م` : '',
+    university: universityLine,
+    degree,
+    coverReadable: lines.length > 0,
+    titleSource: title === fallback ? 'filename' : 'cover',
+  }
+}
 
 function sanitizeFilename(name: string): string {
   return name
@@ -35,188 +88,102 @@ function sanitizeFilename(name: string): string {
 export async function extractSource(
   source: SourceFile,
   topics: Topic[],
+  apiKey: string,
   sensitivity: Sensitivity,
   onProgress: (progress: FileProgress) => void,
-  options: ExtractionOptions = {},
 ): Promise<SourceResult> {
   const bytes = new Uint8Array(await source.file.arrayBuffer())
-  const loaded = await loadPdf(bytes)
-  const { doc, pageCount } = loaded
-  if (pageCount < 1) throw new Error('الملف لا يحتوي على صفحات.')
+  onProgress({ stage: 'reading', value: 0.03 })
 
-  onProgress({ stage: 'reading', value: 0.04 })
+  const ocr = await ocrWithDeepSeek(source.file, apiKey, onProgress)
+  const pages = ocr.pages
+  if (pages.length === 0) throw new Error('لم يعُد DeepSeek بأي صفحات نصية لهذا الملف.')
 
-  let coverPageText: PageText
+  onProgress({ stage: 'cover', value: 0.76 })
+  const cover = extractCover(pages, source.name)
+
   let thumbnailUrl: string | undefined
-  const matches: PageMatch[] = []
-  let pagesWithoutText = 0
-  let textPages = 0
-
   try {
-    const firstPage = await doc.getPage(1)
-    coverPageText = await readPageText(firstPage, 1)
-    thumbnailUrl = await renderThumbnail(firstPage, 250)
-    if (coverPageText.rawText.replace(/\s/g, '').length < 5) pagesWithoutText += 1
-    else textPages += 1
-
-    onProgress({ stage: 'cover', value: 0.16 })
-
-    const cover = await extractCover(doc, coverPageText, source.name)
-    const pageTexts: PageText[] = [coverPageText]
-
-    for (let pageNumber = 2; pageNumber <= pageCount; pageNumber += 1) {
-      const page = await doc.getPage(pageNumber)
-      const pageText = await readPageText(page, pageNumber)
-      page.cleanup()
-      pageTexts.push(pageText)
-      if (pageText.rawText.replace(/\s/g, '').length < 5) pagesWithoutText += 1
-      else textPages += 1
-
-      onProgress({
-        stage: 'searching',
-        value: 0.2 + 0.58 * (pageNumber / pageCount),
-      })
-      if (pageNumber % 3 === 0) await sleep(0)
+    const loaded = await loadPdf(bytes)
+    try {
+      const firstPage = await loaded.doc.getPage(1)
+      thumbnailUrl = await renderThumbnail(firstPage, 250)
+    } finally {
+      await loaded.doc.destroy().catch(() => undefined)
     }
+  } catch {
+    thumbnailUrl = undefined
+  }
 
-    const repeatedEdgeLines = findRepeatedEdgeLines(pageTexts)
-    const titleKey = normalizeArabic(cover.title)
-    const textQuality = assessTextQuality(pageTexts)
+  onProgress({ stage: 'searching', value: 0.8 })
+  const matches: PageMatch[] = []
+  let incompletePages = 0
 
-    for (let index = 1; index < pageTexts.length; index += 1) {
-      const pageText = pageTexts[index]
-      const keptLines = pageText.coverLines.filter((line) => {
-        const key = lineRepeatKey(line.text)
-        if (repeatedEdgeLines.has(key)) return false
-        const isEdge = line.y > pageText.height * 0.78 || line.y < pageText.height * 0.22
-        if (isEdge && titleKey.length > 10 && key.includes(titleKey)) return false
-        return true
-      })
-      const searchableText = keptLines.map((line) => line.text).join('\n')
-      const scored = scorePage([normalizeArabic(searchableText)], topics, sensitivity)
-      if (scored.matched.length > 0) {
-        const matchedTerms = scored.matched.flatMap((match) => {
-          const topic = topics.find((entry) => entry.display === match.topic)
-          return topic ? topic.termVariants : []
-        })
-        matches.push({
-          pageNumber: pageText.pageNumber,
-          score: scored.score,
-          topics: scored.matched.map((match) => match.topic),
-          snippet: makeSnippet(
-            keptLines.map((line) => line.text),
-            matchedTerms,
-          ),
-        })
-      }
+  for (const page of pages) {
+    if (page.finishReason === 'length') incompletePages += 1
+    if (page.index === 0) continue
+    const scored = scorePage([normalizeArabic(page.text)], topics, sensitivity)
+    if (scored.matched.length === 0) continue
+    const matchedTerms = scored.matched.flatMap((match) => {
+      const topic = topics.find((entry) => entry.display === match.topic)
+      return topic ? topic.termVariants : []
+    })
+    matches.push({
+      pageNumber: page.index + 1,
+      score: scored.score,
+      topics: scored.matched.map((match) => match.topic),
+      snippet: makeSnippet(pageLines(page.text), matchedTerms),
+    })
+  }
 
-      if (index % 6 === 0) {
-        onProgress({
-          stage: 'searching',
-          value: 0.8 + 0.06 * (index / pageTexts.length),
-        })
-        await sleep(0)
-      }
-    }
+  onProgress({ stage: 'building', value: 0.9 })
 
-    onProgress({ stage: 'building', value: 0.88 })
+  const output = await PDFDocument.create()
+  const sourceDoc = await PDFDocument.load(bytes, { ignoreEncryption: true })
+  const sourcePageCount = sourceDoc.getPageCount()
+  const validMatches = matches.filter(
+    (match) => match.pageNumber >= 1 && match.pageNumber <= sourcePageCount,
+  )
+  const pageIndexes = [0, ...validMatches.map((match) => match.pageNumber - 1)]
+  const copied = await output.copyPages(sourceDoc, pageIndexes)
+  for (const page of copied) output.addPage(page)
+  output.setTitle(`${cover.title} — مقتطف`)
+  if (cover.authors) output.setAuthor(cover.authors)
+  output.setSubject(
+    `مقتطف من: ${source.name} — الموضوع: ${topics.map((topic) => topic.display).join('، ')}`,
+  )
+  output.setKeywords(topics.map((topic) => topic.display))
+  output.setCreator('مُقتطف — تحليل عبر DeepSeek')
+  output.setProducer('مُقتطف')
+  const outputBytes = await output.save()
+  const outputBlob = new Blob([outputBytes as BlobPart], { type: 'application/pdf' })
 
-    const base = sanitizeFilename(source.name.replace(/\.pdf$/i, '')) || 'مصدر'
-    const matchedTopics = [...new Set(matches.flatMap((match) => match.topics))]
-    let wordBlob: Blob | undefined
-    let wordUrl: string | undefined
-    let wordName: string | undefined
-    let wordPageCount: number | undefined
-    let wordError: string | undefined
+  const base = sanitizeFilename(source.name.replace(/\.pdf$/i, '')) || 'مصدر'
+  const matchedTopics = [...new Set(matches.flatMap((match) => match.topics))]
 
-    if (options.includeWord) {
-      const wordPages = options.wordAllPages
-        ? pageTexts.map((page) => page.pageNumber)
-        : [1, ...matches.map((match) => match.pageNumber)]
-      try {
-        wordBlob = await buildWordDocument({
-          fileName: source.name,
-          cover,
-          pages: pageTexts,
-          pageNumbers: wordPages,
-          repeatedEdgeLines,
-          topicLabels: topics.map((topic) => topic.display),
-        })
-        wordUrl = URL.createObjectURL(wordBlob)
-        wordName = `${base} — نص.docx`
-        wordPageCount = wordPages.length
-      } catch {
-        wordError = 'تعذّر إنشاء نسخة Word لهذا المصدر؛ ملف PDF جاهز كما هو.'
-      }
-    }
+  let warning: string | undefined
+  if (matches.length === 0) {
+    warning = 'لم تُعثر صفحات مطابقة للموضوع في النص الذي أعاده DeepSeek؛ الملف الناتج يضم الغلاف فقط.'
+  } else if (incompletePages > 0) {
+    warning = `تعذّر إكمال قراءة ${incompletePages} صفحة في DeepSeek؛ قد تكون بعض الصفحات ناقصة.`
+  }
 
-    const output = await PDFDocument.create()
-    const sourceDoc = await PDFDocument.load(bytes, { ignoreEncryption: true })
-    const pageIndexes = [0, ...matches.map((match) => match.pageNumber - 1)]
-    const copied = await output.copyPages(sourceDoc, pageIndexes)
-    for (const page of copied) output.addPage(page)
+  onProgress({ stage: 'done', value: 1 })
 
-    output.setTitle(`${cover.title} — مقتطف`)
-    if (cover.authors) output.setAuthor(cover.authors)
-    output.setSubject(
-      `مقتطف من: ${source.name} — الموضوع: ${topics.map((topic) => topic.display).join('، ')}`,
-    )
-    output.setKeywords(topics.map((topic) => topic.display))
-    output.setCreator('مُقتطف — أداة استخراج أكاديمية')
-    output.setProducer('مُقتطف')
-    const outputBytes = await output.save()
-    const outputBlob = new Blob([outputBytes as BlobPart], { type: 'application/pdf' })
-
-    let warning: string | undefined
-    if (textPages === 0) {
-      warning = 'هذا الملف يبدو ممسوحًا ضوئيًا ولا يحتوي على نص قابل للبحث؛ أُرفق الغلاف فقط. يمكن البحث يدويًا في صفحاته.'
-    } else if (!cover.coverReadable) {
-      warning = 'تعذّرت قراءة بيانات الغلاف؛ قد تكون الصفحة الأولى صورة ممسوحة. تم تضمين الغلاف كما هو.'
-    } else if (pagesWithoutText > 0) {
-      warning = `عدد الصفحات بدون طبقة نص (صور ممسوحة) ولم يُبحث داخلها: ${pagesWithoutText}.`
-    }
-
-    if (matches.length === 0 && textPages > 0) {
-      warning = warning
-        ? `${warning} لم تُعثر صفحات مطابقة في النص المتاح.`
-        : 'لم تُعثر صفحات مطابقة للموضوع؛ الملف الناتج يضم الغلاف فقط.'
-    }
-
-    if (wordError) warning = warning ? `${warning} ${wordError}` : wordError
-
-    if (textQuality.level === 'poor') {
-      const qualityNote =
-        'جودة النص المستخرج منخفضة؛ قد يكون ترميز الخط في PDF غير صحيح أو أن الصفحة تحتوي على حروف ناقصة. راجع الملف جيدًا قبل الاعتماد عليه، واستخدم زر «النص تالف أو ممسوح؟ جرّب OCR» للحصول على نص قابل للقراءة.'
-      warning = warning ? `${warning} ${qualityNote}` : qualityNote
-    } else if (textQuality.level === 'fair') {
-      const qualityNote =
-        'جودة النص متوسطة؛ قد توجد بعض الحروف أو الكلمات غير الدقيقة.'
-      warning = warning ? `${warning} ${qualityNote}` : qualityNote
-    }
-
-    onProgress({ stage: 'done', value: 1 })
-
-    return {
-      id: source.id,
-      fileName: source.name,
-      fileSize: source.size,
-      pageCount,
-      cover,
-      matches,
-      matchedTopics,
-      outputBlob,
-      outputUrl: URL.createObjectURL(outputBlob),
-      outputName: `${base} — مقتطف.pdf`,
-      wordBlob,
-      wordUrl,
-      wordName,
-      wordPageCount,
-      textQuality: textQuality.level,
-      thumbnailUrl,
-      warning,
-    }
-  } finally {
-    await doc.destroy().catch(() => undefined)
+  return {
+    id: source.id,
+    fileName: source.name,
+    fileSize: source.size,
+    pageCount: pages.length,
+    cover,
+    matches,
+    matchedTopics,
+    outputBlob,
+    outputUrl: URL.createObjectURL(outputBlob),
+    outputName: `${base} — مقتطف.pdf`,
+    ocrPageCount: pages.length,
+    thumbnailUrl,
+    warning,
   }
 }
 
@@ -232,16 +199,6 @@ export async function buildZip(results: SourceResult[]): Promise<Blob> {
     }
     used.add(name)
     zip.file(name, result.outputBlob)
-    if (result.wordBlob && result.wordName) {
-      let wordName = result.wordName
-      let wordCounter = 2
-      while (used.has(wordName)) {
-        wordName = result.wordName.replace(/\.docx$/i, ` (${wordCounter}).docx`)
-        wordCounter += 1
-      }
-      used.add(wordName)
-      zip.file(wordName, result.wordBlob)
-    }
   }
   zip.file(
     'بيانات_المقتطفات.txt',
@@ -259,9 +216,6 @@ export async function buildZip(results: SourceResult[]): Promise<Blob> {
             result.matches.length > 0
               ? result.matches.map((match) => match.pageNumber).join('، ')
               : 'لا توجد'
-          }`,
-          `نسخة Word: ${
-            result.wordPageCount ? `${result.wordPageCount} صفحة` : 'غير مطلوبة'
           }`,
           '',
         ].join('\n'),

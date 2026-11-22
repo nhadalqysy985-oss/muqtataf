@@ -53,15 +53,6 @@ export function ResultCard({ result, index }: ResultCardProps) {
               <Users size={14} />
               {result.cover.authors || 'لم يُعثر على اسم الباحث'}
             </span>
-            {result.textQuality && result.textQuality !== 'good' && (
-              <span
-                className={`quality-chip is-${result.textQuality}`}
-                title="جودة النص المستخرج من PDF"
-              >
-                <AlertTriangle size={13} />
-                جودة النص: {result.textQuality === 'poor' ? 'منخفضة' : 'متوسطة'}
-              </span>
-            )}
           </div>
           {(result.cover.university || result.cover.degree) && (
             <div className="result-institution">
@@ -134,12 +125,6 @@ export function ResultCard({ result, index }: ResultCardProps) {
           <Download size={16} />
           {hasMatches ? 'تنزيل المقتطف' : 'تنزيل الغلاف'}
         </a>
-        {result.wordUrl && result.wordName && (
-          <a className="button button-word button-small" href={result.wordUrl} download={result.wordName}>
-            <FileText size={16} />
-            نسخة Word
-          </a>
-        )}
         <a
           className="button button-ghost button-small"
           href={result.outputUrl}
