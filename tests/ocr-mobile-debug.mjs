@@ -1,0 +1,12 @@
+﻿import { chromium } from 'playwright-core'
+const browser = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true })
+const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
+await page.goto('http://127.0.0.1:4178/', { waitUntil: 'networkidle' })
+console.log('link visible', await page.locator('.ocr-link').isVisible(), 'disabled', await page.locator('.ocr-link').isDisabled())
+await page.locator('.ocr-link').click()
+await page.waitForTimeout(800)
+console.log('modal count', await page.locator('.ocr-modal').count(), 'visible', await page.locator('.ocr-modal').isVisible())
+console.log('box', await page.locator('.ocr-modal').boundingBox())
+console.log('backdrop css', await page.locator('.modal-backdrop').evaluate(el => { const s=getComputedStyle(el); return {display:s.display, position:s.position, zIndex:s.zIndex, inset:s.inset, opacity:s.opacity} }))
+await page.screenshot({ path: 'muqtataf/tests/screenshots/21-ocr-mobile.png', fullPage: false })
+await browser.close()

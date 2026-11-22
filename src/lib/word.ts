@@ -20,6 +20,7 @@ export interface WordBuildInput {
   pageNumbers: number[]
   repeatedEdgeLines: Set<string>
   topicLabels: string[]
+  filterRepeatedTitle?: boolean
 }
 
 interface TextLine {
@@ -28,6 +29,7 @@ interface TextLine {
   size: number
   x: number
   width: number
+  column: number
 }
 
 interface WordParagraph {
@@ -135,6 +137,7 @@ function buildBodyParagraphs(
       !current.bold &&
       Math.abs(current.size - line.size) <= 1.4 &&
       gap <= Math.max(18, line.size * 1.55) &&
+      previous?.column === line.column &&
       Math.abs(line.x - (previous?.x ?? line.x)) < 14 &&
       current.alignment !== AlignmentType.CENTER
 
@@ -159,7 +162,7 @@ function buildBodyParagraphs(
 }
 
 function paragraphGap(previous: TextLine | null, line: TextLine): number {
-  if (!previous) return 0
+  if (!previous || previous.column !== line.column) return 0
   const gap = previous.y - line.y - line.size * 1.15
   if (gap <= 2) return 70
   return Math.min(900, Math.round(gap * 12))
@@ -195,18 +198,34 @@ export async function buildWordDocument(input: WordBuildInput): Promise<Blob> {
   const sections: ISectionOptions[] = selected.map((page, index) => {
     const pageNumber = detectPrintedPageNumber(page.coverLines, page.height)
     const titleKey = normalizeArabic(input.cover.title)
+    const isCoverPage = page.pageNumber === 1 && page.coverLines.length <= 22
     const lines = page.coverLines
       .filter((line, lineIndex) => {
         if (pageNumber.remove.has(lineIndex)) return false
+        if (!isCoverPage && line.y < page.height * 0.05) return false
+        if (
+          !isCoverPage &&
+          line.y > page.height * 0.88 &&
+          line.text.replace(/\s/g, '').length <= 2
+        ) {
+          return false
+        }
         const key = lineRepeatKey(line.text)
         if (input.repeatedEdgeLines.has(key)) return false
         const isEdge = line.y > page.height * 0.78 || line.y < page.height * 0.22
-        if (isEdge && titleKey.length > 10 && key.includes(titleKey)) return false
+        if (
+          input.filterRepeatedTitle !== false &&
+          isEdge &&
+          titleKey.length > 10 &&
+          key.includes(titleKey)
+        ) {
+          return false
+        }
         return true
       })
       .map((line) => ({ ...line }))
 
-    const paragraphs = buildBodyParagraphs(lines, page.width, page.pageNumber === 1)
+    const paragraphs = buildBodyParagraphs(lines, page.width, isCoverPage)
     const children =
       paragraphs.length > 0
         ? paragraphs.map(toParagraph)

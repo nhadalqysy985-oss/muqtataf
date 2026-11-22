@@ -50,6 +50,7 @@ export interface SourceResult {
   wordUrl?: string
   wordName?: string
   wordPageCount?: number
+  textQuality?: 'good' | 'fair' | 'poor'
   thumbnailUrl?: string
   warning?: string
 }

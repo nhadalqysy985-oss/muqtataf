@@ -1,0 +1,10 @@
+﻿import { chromium } from 'playwright-core'
+const browser = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true })
+const page = await browser.newPage({ viewport: { width: 1000, height: 1000 } })
+page.on('console', (m) => { if (m.type() === 'error') console.log('CONSOLE', m.text()) })
+page.on('pageerror', (e) => console.log('PAGEERROR', e.message))
+await page.goto('http://127.0.0.1:4178/tests/ocr-browser.html', { waitUntil: 'networkidle', timeout: 60000 })
+await page.waitForFunction(() => ['done','error'].includes(document.title), null, { timeout: 300000 })
+console.log('title=', await page.title())
+console.log((await page.locator('#out').textContent())?.slice(0, 2500))
+await browser.close()

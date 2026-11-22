@@ -19,6 +19,7 @@ import {
   X,
 } from 'lucide-react'
 import { FileDropzone } from './components/FileDropzone'
+import { OcrDialog } from './components/OcrDialog'
 import { ResultCard } from './components/ResultCard'
 import { buildZip, downloadBlob, extractSource } from './lib/extract'
 import { extractsPhrase, pagesPhrase } from './lib/format'
@@ -107,6 +108,7 @@ function App() {
   const [toast, setToast] = useState<ToastState | null>(null)
   const [zipping, setZipping] = useState(false)
   const [cancelling, setCancelling] = useState(false)
+  const [ocrOpen, setOcrOpen] = useState(false)
 
   const resultsRef = useRef<SourceResult[]>([])
   const cancelRef = useRef(false)
@@ -596,6 +598,14 @@ function App() {
                     </div>
                   </div>
                 )}
+                <button
+                  type="button"
+                  className="ocr-link"
+                  onClick={() => setOcrOpen(true)}
+                  disabled={phase === 'processing'}
+                >
+                  النص تالف أو ممسوح؟ جرّب OCR وإنشاء Word
+                </button>
               </div>
 
               <div className="start-block">
@@ -867,6 +877,8 @@ function App() {
           </button>
         </div>
       )}
+
+      <OcrDialog open={ocrOpen} onClose={() => setOcrOpen(false)} />
     </div>
   )
 }

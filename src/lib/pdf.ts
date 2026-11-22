@@ -20,6 +20,29 @@ export interface CoverLine {
   size: number
   x: number
   width: number
+  column: number
+}
+
+interface RowItem {
+  x: number
+  str: string
+  size: number
+  width: number
+  dir?: string
+}
+
+interface TextRow {
+  y: number
+  items: RowItem[]
+}
+
+interface RowSegment {
+  y: number
+  items: RowItem[]
+  x: number
+  width: number
+  size: number
+  column: number
 }
 
 export interface PageText {
@@ -53,10 +76,7 @@ export async function loadPdf(bytes: Uint8Array): Promise<LoadedPdf> {
 export async function readPageText(page: PDFPageProxy, pageNumber: number): Promise<PageText> {
   const viewport = page.getViewport({ scale: 1 })
   const textContent = await page.getTextContent()
-  const rows: Array<{
-    y: number
-    items: Array<{ x: number; str: string; size: number; width: number; dir?: string }>
-  }> = []
+  const rows: TextRow[] = []
 
   for (const item of textContent.items) {
     if (!('str' in item)) continue
@@ -81,25 +101,45 @@ export async function readPageText(page: PDFPageProxy, pageNumber: number): Prom
   }
 
   rows.sort((a, b) => b.y - a.y)
+  const layout = detectColumnLayout(rows, viewport.width)
   const descLines: string[] = []
   const ascLines: string[] = []
   const coverLines: CoverLine[] = []
 
-  for (const row of rows) {
-    const desc = joinRowItems(row.items, 'desc')
-    const asc = joinRowItems(row.items, 'asc')
-    if (!desc.trim() && !asc.trim()) continue
-    descLines.push(desc)
-    ascLines.push(asc)
-    const left = Math.min(...row.items.map((item) => item.x))
-    const right = Math.max(...row.items.map((item) => item.x + item.width))
-    coverLines.push({
-      text: desc,
-      y: row.y,
-      size: Math.max(...row.items.map((item) => item.size), 8),
-      x: left,
-      width: Math.max(1, right - left),
-    })
+  if (layout.columns) {
+    for (const segment of layout.segments) {
+      const desc = joinRowItems(segment.items, 'desc')
+      const asc = joinRowItems(segment.items, 'asc')
+      if (!desc.trim() && !asc.trim()) continue
+      descLines.push(desc)
+      ascLines.push(asc)
+      coverLines.push({
+        text: desc,
+        y: segment.y,
+        size: segment.size,
+        x: segment.x,
+        width: segment.width,
+        column: segment.column,
+      })
+    }
+  } else {
+    for (const row of rows) {
+      const desc = joinRowItems(row.items, 'desc')
+      const asc = joinRowItems(row.items, 'asc')
+      if (!desc.trim() && !asc.trim()) continue
+      descLines.push(desc)
+      ascLines.push(asc)
+      const left = Math.min(...row.items.map((item) => item.x))
+      const right = Math.max(...row.items.map((item) => item.x + item.width))
+      coverLines.push({
+        text: desc,
+        y: row.y,
+        size: Math.max(...row.items.map((item) => item.size), 8),
+        x: left,
+        width: Math.max(1, right - left),
+        column: 0,
+      })
+    }
   }
 
   const rawText = descLines.join('\n')
@@ -124,6 +164,98 @@ export async function readPageText(page: PDFPageProxy, pageNumber: number): Prom
     logicalText,
     lines: logicalLines,
     coverLines: coverLines.map((line, index) => ({ ...line, text: logicalLines[index] })),
+  }
+}
+
+function splitRowSegments(row: TextRow, pageWidth: number): RowSegment[] {
+  const sorted = [...row.items].sort((a, b) => a.x - b.x)
+  const threshold = Math.max(9, pageWidth * 0.025)
+  const groups: RowItem[][] = []
+  let current: RowItem[] = []
+  let previousEnd = 0
+
+  for (const item of sorted) {
+    if (current.length > 0 && item.x - previousEnd > threshold) {
+      groups.push(current)
+      current = []
+    }
+    current.push(item)
+    previousEnd = item.x + item.width
+  }
+  if (current.length > 0) groups.push(current)
+
+  return groups.map((items) => {
+    const left = Math.min(...items.map((item) => item.x))
+    const right = Math.max(...items.map((item) => item.x + item.width))
+    return {
+      y: row.y,
+      items,
+      x: left,
+      width: Math.max(1, right - left),
+      size: Math.max(...items.map((item) => item.size), 8),
+      column: 0,
+    }
+  })
+}
+
+/**
+ * Detects a page split into a main column and a sidebar/second column.
+ * Lines from the two columns often do not share the same baseline, so the
+ * detection works from horizontal position rather than row gaps.
+ */
+function detectColumnLayout(
+  rows: TextRow[],
+  pageWidth: number,
+): { columns: boolean; segments: RowSegment[] } {
+  const segmentedRows = rows.map((row) => splitRowSegments(row, pageWidth))
+  const flat = segmentedRows.flat()
+  if (flat.length === 0) return { columns: false, segments: flat }
+
+  const center = pageWidth / 2
+  const spans: RowSegment[] = []
+  const right: RowSegment[] = []
+  const left: RowSegment[] = []
+
+  for (const segment of flat) {
+    const crossesCenter = segment.x < center && segment.x + segment.width > center
+    if (crossesCenter || segment.width > pageWidth * 0.58) {
+      spans.push(segment)
+    } else if (segment.x + segment.width / 2 >= center) {
+      right.push(segment)
+    } else {
+      left.push(segment)
+    }
+  }
+
+  if (right.length < 6 || left.length < 6) {
+    return { columns: false, segments: flat }
+  }
+
+  const verticalSpan = (segments: RowSegment[]) => {
+    const ys = segments.map((segment) => segment.y)
+    return Math.max(...ys) - Math.min(...ys)
+  }
+  if (
+    verticalSpan(right) < pageWidth * 0.2 ||
+    verticalSpan(left) < pageWidth * 0.2
+  ) {
+    return { columns: false, segments: flat }
+  }
+
+  const leftMax = Math.max(...left.map((segment) => segment.x + segment.width))
+  const rightMin = Math.min(...right.map((segment) => segment.x))
+  if (rightMin - leftMax < pageWidth * 0.015) {
+    return { columns: false, segments: flat }
+  }
+
+  for (const segment of spans) segment.column = 0
+  for (const segment of right) segment.column = 1
+  for (const segment of left) segment.column = 2
+  const byY = (a: RowSegment, b: RowSegment) => b.y - a.y || a.x - b.x
+
+  return {
+    columns: true,
+    segments: [...spans.sort(byY), ...right.sort(byY), ...left.sort(byY)],
   }
 }
 

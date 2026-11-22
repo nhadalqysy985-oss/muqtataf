@@ -11,6 +11,7 @@ import {
 import type { PageText } from './pdf'
 import { makeSnippet, normalizeArabic, scorePage } from './text'
 import { buildWordDocument } from './word'
+import { assessTextQuality } from './quality'
 import type {
   ExtractionOptions,
   FileProgress,
@@ -80,6 +81,7 @@ export async function extractSource(
 
     const repeatedEdgeLines = findRepeatedEdgeLines(pageTexts)
     const titleKey = normalizeArabic(cover.title)
+    const textQuality = assessTextQuality(pageTexts)
 
     for (let index = 1; index < pageTexts.length; index += 1) {
       const pageText = pageTexts[index]
@@ -182,6 +184,16 @@ export async function extractSource(
 
     if (wordError) warning = warning ? `${warning} ${wordError}` : wordError
 
+    if (textQuality.level === 'poor') {
+      const qualityNote =
+        'جودة النص المستخرج منخفضة؛ قد يكون ترميز الخط في PDF غير صحيح أو أن الصفحة تحتوي على حروف ناقصة. راجع الملف جيدًا قبل الاعتماد عليه، وقد تحتاج نسخة OCR.'
+      warning = warning ? `${warning} ${qualityNote}` : qualityNote
+    } else if (textQuality.level === 'fair') {
+      const qualityNote =
+        'جودة النص متوسطة؛ قد توجد بعض الحروف أو الكلمات غير الدقيقة.'
+      warning = warning ? `${warning} ${qualityNote}` : qualityNote
+    }
+
     onProgress({ stage: 'done', value: 1 })
 
     return {
@@ -199,6 +211,7 @@ export async function extractSource(
       wordUrl,
       wordName,
       wordPageCount,
+      textQuality: textQuality.level,
       thumbnailUrl,
       warning,
     }

@@ -53,6 +53,15 @@ export function ResultCard({ result, index }: ResultCardProps) {
               <Users size={14} />
               {result.cover.authors || 'لم يُعثر على اسم الباحث'}
             </span>
+            {result.textQuality && result.textQuality !== 'good' && (
+              <span
+                className={`quality-chip is-${result.textQuality}`}
+                title="جودة النص المستخرج من PDF"
+              >
+                <AlertTriangle size={13} />
+                جودة النص: {result.textQuality === 'poor' ? 'منخفضة' : 'متوسطة'}
+              </span>
+            )}
           </div>
           {(result.cover.university || result.cover.degree) && (
             <div className="result-institution">
