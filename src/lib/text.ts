@@ -1,4 +1,4 @@
-﻿import type { Sensitivity, Topic } from './types'
+import type { Sensitivity, Topic } from './types'
 
 const ARABIC_INDIC = '٠١٢٣٤٥٦٧٨٩'
 const PERSIAN_DIGITS = '۰۱۲۳۴۵۶۷۸۹'
@@ -76,18 +76,6 @@ export function visualToLogical(input: string): string {
     .reverse()
     .map((unit) => (unit.protect ? unit.text : [...unit.text].reverse().join('')))
     .join('')
-}
-
-export function chooseLogicalText(rawLines: string[]): {
-  text: string
-  reversed: boolean
-} {
-  const raw = rawLines.join('\n')
-  const flipped = rawLines.map(visualToLogical).join('\n')
-  const rawScore = arabicScore(raw)
-  const flippedScore = arabicScore(flipped)
-  const reversed = flippedScore > rawScore + Math.max(1, rawScore * 0.15)
-  return { text: reversed ? flipped : raw, reversed }
 }
 
 const STOP_WORDS = new Set(
@@ -193,6 +181,7 @@ export interface TopicPageMatch {
   score: number
   coverage: number
   exactPhrase: boolean
+  passed: boolean
 }
 
 function pageTokenSetAndCounts(text: string): {
@@ -254,6 +243,7 @@ export function matchTopicInText(
     score: passed ? Math.max(score, 45) : score,
     coverage,
     exactPhrase: exactPhrase && passed,
+    passed,
   }
 }
 
@@ -268,10 +258,7 @@ export function scorePage(
     const { variants, counts } = pageTokenSetAndCounts(text)
     for (const topic of topics) {
       const result = matchTopicInText(variants, counts, text, topic, sensitivity)
-      if (result.coverage === 0 && !result.exactPhrase) continue
-      const required = requiredCoverage(topic.termVariants.length, sensitivity)
-      const passed = result.coverage >= required || (result.exactPhrase && result.coverage >= 0.5)
-      if (!passed) continue
+      if (!result.passed) continue
       const existing = matched.find((item) => item.topic === topic.display)
       if (!existing || result.score > existing.score) {
         if (existing) Object.assign(existing, result)
@@ -287,13 +274,13 @@ export function makeSnippet(lines: string[], topicTerms: string[][]): string {
   if (lines.length === 0) return ''
   let bestIndex = 0
   let bestScore = 0
+  const termSets = topicTerms.map((variants) => new Set(variants))
   for (let index = 0; index < lines.length; index += 1) {
     const tokens = normalizeArabic(lines[index]).split(' ').filter(Boolean)
+    const tokenVariantsSet = new Set(tokens.flatMap((token) => tokenVariants(token)))
     let score = 0
-    for (const variants of topicTerms) {
-      if (tokens.some((token) => variants.some((variant) => tokenVariants(token).includes(variant)))) {
-        score += 1
-      }
+    for (const termSet of termSets) {
+      if ([...termSet].some((variant) => tokenVariantsSet.has(variant))) score += 1
     }
     if (score > bestScore) {
       bestScore = score

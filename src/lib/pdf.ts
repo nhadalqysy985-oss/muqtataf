@@ -446,12 +446,6 @@ export async function renderThumbnail(page: PDFPageProxy, maxWidth = 240): Promi
   }
 }
 
-export function pageSearchVariants(page: PageText): string[] {
-  const raw = normalizeArabic(page.rawText)
-  const logical = normalizeArabic(page.logicalText)
-  return raw === logical ? [logical] : [raw, logical]
-}
-
 export function lineRepeatKey(text: string): string {
   return normalizeArabic(text)
     .replace(/\b\d+\b/g, ' ')

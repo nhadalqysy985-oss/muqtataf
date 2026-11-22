@@ -1,0 +1,28 @@
+﻿import { chromium } from 'playwright-core'
+import path from 'node:path'
+const browser = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true })
+const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, acceptDownloads: true })
+const errors = []
+const failed = []
+page.on('pageerror', (e) => errors.push(e.message))
+page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
+page.on('response', (r) => { if (r.status() >= 400) failed.push(`${r.status()} ${r.url()}`) })
+await page.goto('https://nhadalqysy985-oss.github.io/muqtataf/', { waitUntil: 'networkidle', timeout: 60000 })
+console.log('title=', await page.title())
+console.log('h1=', (await page.locator('h1').textContent())?.replace(/\s+/g, ' ').trim())
+await page.screenshot({ path: 'muqtataf/tests/screenshots/10-deployed-home.png', fullPage: false })
+await page.setInputFiles('input[type=file]', path.resolve('muqtataf/tests/fixtures/study1.pdf'))
+await page.fill('#topic', 'مفهوم القيادة التحويلية')
+await page.click('button.start-button')
+await page.waitForSelector('.result-card', { timeout: 180000 })
+console.log('badge=', (await page.locator('.result-badge').textContent())?.trim())
+console.log('pages=', await page.locator('.page-chip:not(.is-cover)').allTextContents())
+console.log('title-card=', (await page.locator('.result-card h3').textContent())?.trim())
+console.log('author=', (await page.locator('.result-meta span').nth(1).textContent())?.trim())
+const [download] = await Promise.all([page.waitForEvent('download'), page.locator('.result-card a[download]').click()])
+await download.saveAs('muqtataf/tests/outputs/deployed-result.pdf')
+console.log('download=', download.suggestedFilename())
+console.log('failed=', failed)
+console.log('errors=', errors)
+await page.screenshot({ path: 'muqtataf/tests/screenshots/11-deployed-results.png', fullPage: false })
+await browser.close()
