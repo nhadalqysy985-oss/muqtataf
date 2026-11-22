@@ -188,8 +188,8 @@ export async function ocrPdfToWord(
     let workingPages = pages
     let matchedPages = pages.map((page) => page.pageNumber)
     if (topics.length > 0) {
-      workingPages = pages.filter((page, index) => {
-        if (index === 0) return true
+      workingPages = pages.filter((page) => {
+        if (page.pageNumber === 1) return true
         const scored = scorePage([normalizeArabic(page.logicalText)], topics, 'balanced')
         return scored.matched.length > 0
       })
