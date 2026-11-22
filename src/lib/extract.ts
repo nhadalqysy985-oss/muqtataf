@@ -5,10 +5,17 @@ import { ocrWithDeepSeek } from './deepseek'
 import type { UsageEvent } from './deepseek'
 import { makeSnippet, normalizeArabic, scorePage } from './text'
 import { cleanDisplay, normalizeDigits } from './text'
+import {
+  buildCitation,
+  detectCountry,
+  detectPrintedPageNumber,
+  splitAuthorNames,
+} from './research'
 import type {
   CoverInfo,
   FileProgress,
   PageMatch,
+  ResearchPage,
   Sensitivity,
   SourceFile,
   SourceResult,
@@ -16,7 +23,7 @@ import type {
 } from './types'
 
 const AUTHOR_MARKER =
-  /(?:^|\s)(?:من\s+|قام\s+ب)?(?:إعداد|اعداد|أعداد)\s*(?:الطالبات|الطالب(?:ة|\/ة)?|الطلبة|الباحث(?:ة|\/ة)?|الباحثين)?\s*[:\-–]?\s*(.*)$/u
+  /(?:^|\s)(?:من\s+|قام\s+ب)?(?:إعداد|اعداد|أعداد)\s*(?:الطالبتان|الطالبان|الباحثتان|الباحثان|الطالبات|الطالب(?:ة|\/ة)?|الطلبة|الباحث(?:ة|\/ة)?|الباحثين)?\s*[:\-–]?\s*(.*)$/u
 
 const BOILERPLATE =
   /(جامعه|كليه|قسم|معهد|وزاره|الجمهوريه|رساله|اطروحه|ماجستير|دكتوراه|دبلوم|بكالوريوس|جزء من متطلبات|نيل شهاده|بسم الله|الرحمن|الرحيم)/
@@ -66,12 +73,15 @@ function extractCover(pages: Array<{ index: number; text: string }>, fileName: s
   const yearMatch = normalizeDigits(lines.join(' ')).match(/(?<!\d)(19|20)\d{2}(?!\d)/)
   const universityLine = lines.find((line) => /(جامعه|كليه|معهد)/.test(normalizeArabic(line)))
   const degree = DEGREE.exec(normalizedAll)?.[1]
+  const authors = extractAuthors(lines)
 
   return {
     title,
-    authors: extractAuthors(lines),
+    authors,
+    authorNames: splitAuthorNames(authors),
     year: yearMatch ? `${yearMatch[0]}م` : '',
     university: universityLine,
+    country: detectCountry(lines),
     degree,
     coverReadable: lines.length > 0,
     titleSource: title === fallback ? 'filename' : 'cover',
@@ -162,6 +172,22 @@ export async function extractSource(
 
   const base = sanitizeFilename(source.name.replace(/\.pdf$/i, '')) || 'مصدر'
   const matchedTopics = [...new Set(matches.flatMap((match) => match.topics))]
+  const citation = buildCitation(cover)
+  const pageTextByNumber = new Map(pages.map((page) => [page.index + 1, page.text]))
+  const researchPageNumbers = [1, ...matches.map((match) => match.pageNumber)].filter(
+    (pageNumber, index, all) => all.indexOf(pageNumber) === index,
+  )
+  const researchPages: ResearchPage[] = researchPageNumbers
+    .map((pageNumber) => {
+      const text = pageTextByNumber.get(pageNumber) ?? ''
+      if (!text) return null
+      return {
+        pdfPage: pageNumber,
+        printedPage: detectPrintedPageNumber(text) ?? '',
+        text,
+      }
+    })
+    .filter((page): page is ResearchPage => page !== null)
 
   let warning: string | undefined
   if (matches.length === 0) {
@@ -184,6 +210,8 @@ export async function extractSource(
     outputUrl: URL.createObjectURL(outputBlob),
     outputName: `${base} — مقتطف.pdf`,
     ocrPageCount: pages.length,
+    citation,
+    researchPages,
     usage: ocr.usage,
     thumbnailUrl,
     warning,

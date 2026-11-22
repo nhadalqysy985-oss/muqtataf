@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 import { FileDropzone } from './components/FileDropzone'
 import { ResultCard } from './components/ResultCard'
+import { ResearchPanel } from './components/ResearchPanel'
 import { buildZip, downloadBlob, extractSource } from './lib/extract'
 import { extractsPhrase, pagesPhrase } from './lib/format'
 import { parseTopics } from './lib/text'
@@ -712,12 +713,13 @@ function App() {
                     </div>
                     <div className="usage-stat">
                       <strong>${estimateOcrCost(usage.pages)}</strong>
-                      <span>تكلفة تقديرية</span>
+                      <span>تكلفة OCR</span>
                       <em>$0.225 / 1000 صفحة</em>
                     </div>
                   </div>
                   <p className="usage-note">
                     أرقام حقيقية من استجابات DeepSeek لهذه الأداة فقط، وليست كامل استهلاك حسابك.
+                    تكلفة OCR تقديرية ولا تشمل توكنز المحادثة.
                     {usage.updatedAt > 0
                       ? ` آخر تحديث: ${new Date(usage.updatedAt).toLocaleString('ar-IQ', {
                           dateStyle: 'short',
@@ -884,6 +886,10 @@ function App() {
               </div>
             )}
           </section>
+        )}
+
+        {phase === 'done' && results.length > 0 && (
+          <ResearchPanel results={results} apiKey={apiKey} onUsage={handleUsageEvent} />
         )}
 
         <section className="how container" id="how">

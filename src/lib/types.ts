@@ -27,12 +27,32 @@ export interface PageMatch {
 export interface CoverInfo {
   title: string
   authors: string
+  authorNames?: string[]
   year: string
   hijriYear?: string
   university?: string
+  country?: string
   degree?: string
   coverReadable: boolean
   titleSource: 'cover' | 'metadata' | 'filename'
+}
+
+export interface ResearchPage {
+  pdfPage: number
+  printedPage: string
+  text: string
+}
+
+export interface ResearchCitation {
+  authors: string[]
+  surnames: string[]
+  year: string
+  title: string
+  degree?: string
+  university?: string
+  country?: string
+  label: string
+  reference: string
 }
 
 export interface SourceResult {
@@ -47,6 +67,8 @@ export interface SourceResult {
   outputUrl: string
   outputName: string
   ocrPageCount: number
+  citation: ResearchCitation
+  researchPages: ResearchPage[]
   usage?: {
     inputTokens: number
     outputTokens: number
