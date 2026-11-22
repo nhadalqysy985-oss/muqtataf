@@ -47,6 +47,11 @@ export interface SourceResult {
   outputUrl: string
   outputName: string
   ocrPageCount: number
+  usage?: {
+    inputTokens: number
+    outputTokens: number
+    totalTokens: number
+  }
   thumbnailUrl?: string
   warning?: string
 }

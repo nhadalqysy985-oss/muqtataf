@@ -2,6 +2,7 @@ import { PDFDocument } from 'pdf-lib'
 import JSZip from 'jszip'
 import { loadPdf, renderThumbnail } from './pdf'
 import { ocrWithDeepSeek } from './deepseek'
+import type { UsageEvent } from './deepseek'
 import { makeSnippet, normalizeArabic, scorePage } from './text'
 import { cleanDisplay, normalizeDigits } from './text'
 import type {
@@ -91,11 +92,12 @@ export async function extractSource(
   apiKey: string,
   sensitivity: Sensitivity,
   onProgress: (progress: FileProgress) => void,
+  onUsage?: (event: UsageEvent) => void,
 ): Promise<SourceResult> {
   const bytes = new Uint8Array(await source.file.arrayBuffer())
   onProgress({ stage: 'reading', value: 0.03 })
 
-  const ocr = await ocrWithDeepSeek(source.file, apiKey, onProgress)
+  const ocr = await ocrWithDeepSeek(source.file, apiKey, onProgress, onUsage)
   const pages = ocr.pages
   if (pages.length === 0) throw new Error('لم يعُد DeepSeek بأي صفحات نصية لهذا الملف.')
 
@@ -182,6 +184,7 @@ export async function extractSource(
     outputUrl: URL.createObjectURL(outputBlob),
     outputName: `${base} — مقتطف.pdf`,
     ocrPageCount: pages.length,
+    usage: ocr.usage,
     thumbnailUrl,
     warning,
   }

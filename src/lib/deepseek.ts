@@ -6,9 +6,21 @@ export interface DeepSeekPage {
   finishReason: string
 }
 
+export interface DeepSeekUsage {
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+}
+
+export type UsageEvent =
+  | { type: 'attempt' }
+  | { type: 'failure' }
+  | { type: 'success'; usage: DeepSeekUsage; pages: number }
+
 export interface DeepSeekOcrResult {
   pages: DeepSeekPage[]
   pageCount: number
+  usage: DeepSeekUsage
 }
 
 function stripOcrMarkup(text: string): string {
@@ -36,6 +48,7 @@ export async function ocrWithDeepSeek(
   file: File,
   apiKey: string,
   onProgress: (progress: FileProgress) => void,
+  onUsage?: (event: UsageEvent) => void,
 ): Promise<DeepSeekOcrResult> {
   if (!apiKey.trim()) throw new Error('أدخل مفتاح DeepSeek API أولًا.')
   if (file.size > 100 * 1024 * 1024) throw new Error('حجم الملف يتجاوز 100 م.ب.')
@@ -54,6 +67,8 @@ export async function ocrWithDeepSeek(
     onProgress({ stage: 'ocr', value: pulse })
   }, 2500)
 
+  onUsage?.({ type: 'attempt' })
+
   let response: Response
   try {
     response = await fetch('https://api.deepseek.com/v1/tools/ocr', {
@@ -63,6 +78,7 @@ export async function ocrWithDeepSeek(
       signal: controller.signal,
     })
   } catch (error) {
+    onUsage?.({ type: 'failure' })
     if ((error as Error).name === 'AbortError') {
       throw new Error('انتهت مهلة الاتصال بـ DeepSeek. جرّب ملفًا أصغر أو أعد المحاولة.')
     }
@@ -74,23 +90,31 @@ export async function ocrWithDeepSeek(
 
   onProgress({ stage: 'ocr', value: 0.28 })
 
-  const raw = await response.text()
+  const fail = (message: string): never => {
+    onUsage?.({ type: 'failure' })
+    throw new Error(message)
+  }
+
+  const raw = await response.text().catch(() =>
+    fail('انقطع الاتصال أثناء قراءة استجابة DeepSeek. أعد المحاولة.'),
+  )
   let data: {
     pages?: Array<{ index?: number; text?: string; finish_reason?: string }>
     page_count?: number
+    usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number }
     error?: { message?: string }
   }
   try {
     data = JSON.parse(raw)
   } catch {
-    throw new Error(friendlyApiError(response.status, raw.slice(0, 200)))
+    return fail(friendlyApiError(response.status, raw.slice(0, 200)))
   }
 
   if (!response.ok || data.error) {
-    throw new Error(friendlyApiError(response.status, data.error?.message ?? ''))
+    return fail(friendlyApiError(response.status, data.error?.message ?? ''))
   }
   if (!Array.isArray(data.pages) || data.pages.length === 0) {
-    throw new Error('لم يعُد DeepSeek بأي صفحات نصية لهذا الملف.')
+    return fail('لم يعُد DeepSeek بأي صفحات نصية لهذا الملف.')
   }
 
   const pages = data.pages
@@ -101,10 +125,18 @@ export async function ocrWithDeepSeek(
     }))
     .sort((a, b) => a.index - b.index)
 
+  const pageCount = data.page_count ?? pages.length
+  const inputTokens = Number(data.usage?.input_tokens) || 0
+  const outputTokens = Number(data.usage?.output_tokens) || 0
+  const totalTokens = Number(data.usage?.total_tokens) || inputTokens + outputTokens
+  const usage: DeepSeekUsage = { inputTokens, outputTokens, totalTokens }
+
   onProgress({ stage: 'ocr', value: 0.72 })
+  onUsage?.({ type: 'success', usage, pages: pageCount })
 
   return {
     pages,
-    pageCount: data.page_count ?? pages.length,
+    pageCount,
+    usage,
   }
 }

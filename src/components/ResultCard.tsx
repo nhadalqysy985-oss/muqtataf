@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import type { SourceResult } from '../lib/types'
 import { pagesPhrase, relatedPagesPhrase } from '../lib/format'
+import { formatUsageNumber } from '../lib/usage'
 
 interface ResultCardProps {
   result: SourceResult
@@ -136,6 +137,9 @@ export function ResultCard({ result, index }: ResultCardProps) {
         </a>
         <span className="result-file-note">
           {hasMatches ? `الغلاف + ${pagesPhrase(matchedPages)}` : 'ملف PDF مستقل'}
+          {result.usage && result.usage.totalTokens > 0
+            ? ` · ${formatUsageNumber(result.usage.totalTokens)} توكن`
+            : ''}
         </span>
       </div>
     </article>

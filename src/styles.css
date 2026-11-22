@@ -1126,6 +1126,106 @@ ul {
   line-height: 1.7;
 }
 
+.usage-panel {
+  margin-top: 8px;
+  padding: 10px 11px;
+  border: 1px solid #e5dccb;
+  border-radius: 10px;
+  background: rgba(255, 253, 248, 0.62);
+}
+
+.usage-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.usage-head > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink-soft);
+  font-size: 0.62rem;
+  font-weight: 600;
+}
+
+.usage-head > span svg {
+  color: var(--green);
+}
+
+.usage-head button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 6px;
+  border: 1px solid #e3d9c7;
+  border-radius: 6px;
+  background: transparent;
+  color: #91846f;
+  font-size: 0.53rem;
+}
+
+.usage-head button:hover:not(:disabled) {
+  border-color: var(--green);
+  color: var(--green);
+}
+
+.usage-head button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.usage-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.usage-stat {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 5px;
+  border-radius: 6px;
+  background: #f7f2e8;
+  text-align: center;
+}
+
+.usage-stat strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-stat span {
+  color: #7d715e;
+  font-size: 0.5rem;
+}
+
+.usage-stat em {
+  overflow: hidden;
+  color: #a39680;
+  font-size: 0.44rem;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-note {
+  margin: 6px 1px 0;
+  color: #9a8d79;
+  font-size: 0.5rem;
+  line-height: 1.6;
+}
+
 .word-option.is-on {
   border-color: #c8dcd2;
   background: rgba(231, 240, 234, 0.42);
@@ -2835,6 +2935,10 @@ ul {
 
   .segmented button {
     font-size: 0.61rem;
+  }
+
+  .usage-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .processing-copy {

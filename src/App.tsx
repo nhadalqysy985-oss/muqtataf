@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Activity,
   AlertTriangle,
   ArrowLeft,
   BookOpen,
@@ -27,6 +28,18 @@ import { ResultCard } from './components/ResultCard'
 import { buildZip, downloadBlob, extractSource } from './lib/extract'
 import { extractsPhrase, pagesPhrase } from './lib/format'
 import { parseTopics } from './lib/text'
+import type { UsageEvent } from './lib/deepseek'
+import {
+  applyUsageEvent,
+  emptyUsage,
+  estimateOcrCost,
+  formatUsageNumber,
+  keyFingerprint,
+  loadUsage,
+  resetUsage,
+  saveUsage,
+} from './lib/usage'
+import type { UsageStats } from './lib/usage'
 import type {
   FileFailure,
   FileProgress,
@@ -118,6 +131,7 @@ function App() {
     }
   })
   const [showKey, setShowKey] = useState(false)
+  const [usage, setUsage] = useState<UsageStats>(() => emptyUsage())
   const [phase, setPhase] = useState<'idle' | 'processing' | 'done'>('idle')
   const [results, setResults] = useState<SourceResult[]>([])
   const [failures, setFailures] = useState<FileFailure[]>([])
@@ -129,6 +143,7 @@ function App() {
   const resultsRef = useRef<SourceResult[]>([])
   const cancelRef = useRef(false)
   const resultsSectionRef = useRef<HTMLElement>(null)
+  const usageFingerprint = useMemo(() => keyFingerprint(apiKey), [apiKey])
 
   const setResultsSafe = (updater: (current: SourceResult[]) => SourceResult[]) => {
     setResults((current) => {
@@ -147,6 +162,10 @@ function App() {
     const timer = window.setTimeout(() => setToast(null), 6500)
     return () => window.clearTimeout(timer)
   }, [toast])
+
+  useEffect(() => {
+    setUsage(loadUsage(usageFingerprint))
+  }, [usageFingerprint])
 
   useEffect(() => {
     try {
@@ -249,6 +268,19 @@ function App() {
     if (phase === 'done') clearResults()
   }
 
+  const handleUsageEvent = (event: UsageEvent) => {
+    setUsage((current) => {
+      const next = applyUsageEvent(current, event)
+      saveUsage(usageFingerprint, next)
+      return next
+    })
+  }
+
+  const resetUsageStats = () => {
+    setUsage(resetUsage(usageFingerprint))
+    showToast('تم تصفير إحصاءات هذه الأداة لهذا المفتاح.', 'success')
+  }
+
   const startExtraction = async () => {
     if (phase === 'processing') return
     if (!apiKey.trim()) {
@@ -307,6 +339,7 @@ function App() {
                 : current,
             )
           },
+          handleUsageEvent,
         )
         setResultsSafe((current) => [...current, result])
       } catch (error) {
@@ -637,6 +670,63 @@ function App() {
                   يُرسَل الملف إلى DeepSeek مباشرة بمفتاحك. لا يمر عبر خادمنا، ولا نخزّن الملفات.
                 </p>
               </div>
+
+              {apiKey.trim() && (
+                <div className="usage-panel">
+                  <div className="usage-head">
+                    <span>
+                      <Activity size={14} />
+                      استهلاك هذه الأداة
+                    </span>
+                    <button
+                      type="button"
+                      onClick={resetUsageStats}
+                      disabled={usage.attempts === 0}
+                      title="تصفير إحصاءات هذا المفتاح"
+                    >
+                      <RotateCcw size={12} />
+                      تصفير
+                    </button>
+                  </div>
+                  <div className="usage-grid">
+                    <div className="usage-stat">
+                      <strong>{formatUsageNumber(usage.attempts)}</strong>
+                      <span>الطلبات</span>
+                      <em>
+                        {formatUsageNumber(usage.successful)} ناجحة ·{' '}
+                        {formatUsageNumber(usage.failed)} فاشلة
+                      </em>
+                    </div>
+                    <div className="usage-stat">
+                      <strong>{formatUsageNumber(usage.totalTokens)}</strong>
+                      <span>توكن</span>
+                      <em>
+                        إدخال {formatUsageNumber(usage.inputTokens)} · إخراج{' '}
+                        {formatUsageNumber(usage.outputTokens)}
+                      </em>
+                    </div>
+                    <div className="usage-stat">
+                      <strong>{formatUsageNumber(usage.pages)}</strong>
+                      <span>صفحة OCR</span>
+                      <em>{formatUsageNumber(usage.successful)} طلب ناجح</em>
+                    </div>
+                    <div className="usage-stat">
+                      <strong>${estimateOcrCost(usage.pages)}</strong>
+                      <span>تكلفة تقديرية</span>
+                      <em>$0.225 / 1000 صفحة</em>
+                    </div>
+                  </div>
+                  <p className="usage-note">
+                    أرقام حقيقية من استجابات DeepSeek لهذه الأداة فقط، وليست كامل استهلاك حسابك.
+                    {usage.updatedAt > 0
+                      ? ` آخر تحديث: ${new Date(usage.updatedAt).toLocaleString('ar-IQ', {
+                          dateStyle: 'short',
+                          timeStyle: 'short',
+                        })}`
+                      : ''}
+                  </p>
+                </div>
+              )}
 
               <div className="start-block">
                 <StepHeader
