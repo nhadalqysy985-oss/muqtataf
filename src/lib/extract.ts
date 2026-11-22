@@ -186,7 +186,7 @@ export async function extractSource(
 
     if (textQuality.level === 'poor') {
       const qualityNote =
-        'جودة النص المستخرج منخفضة؛ قد يكون ترميز الخط في PDF غير صحيح أو أن الصفحة تحتوي على حروف ناقصة. راجع الملف جيدًا قبل الاعتماد عليه، وقد تحتاج نسخة OCR.'
+        'جودة النص المستخرج منخفضة؛ قد يكون ترميز الخط في PDF غير صحيح أو أن الصفحة تحتوي على حروف ناقصة. راجع الملف جيدًا قبل الاعتماد عليه، واستخدم زر «النص تالف أو ممسوح؟ جرّب OCR» للحصول على نص قابل للقراءة.'
       warning = warning ? `${warning} ${qualityNote}` : qualityNote
     } else if (textQuality.level === 'fair') {
       const qualityNote =

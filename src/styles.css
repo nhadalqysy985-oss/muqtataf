@@ -1253,6 +1253,28 @@ ul {
   gap: 6px;
 }
 
+.ocr-topic-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ocr-topic-field .field-label {
+  margin: 0;
+}
+
+.ocr-topic-field .field-label span {
+  color: #9a8d79;
+  font-weight: 400;
+}
+
+.ocr-topic-field p {
+  margin: 0;
+  color: #948873;
+  font-size: 0.57rem;
+  line-height: 1.7;
+}
+
 .ocr-range-input {
   width: 100%;
   padding: 9px 11px;

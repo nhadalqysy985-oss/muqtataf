@@ -1,8 +1,10 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist'
+import { PDFDocument } from 'pdf-lib'
 import { loadPdf } from './pdf'
 import type { PageText } from './pdf'
-import type { CoverInfo } from './types'
-import { cleanDisplay, normalizeDigits } from './text'
+import type { CoverInfo, Topic } from './types'
+import { cleanDisplay, normalizeArabic, normalizeDigits } from './text'
+import { scorePage } from './text'
 import { buildWordDocument } from './word'
 
 export interface OcrProgress {
@@ -16,7 +18,12 @@ export interface OcrProgress {
 export interface OcrResult {
   blob: Blob
   name: string
+  pdfBlob: Blob
+  pdfName: string
   pageCount: number
+  totalPages: number
+  matchedPages: number[]
+  topic: string
   text: string
 }
 
@@ -101,6 +108,7 @@ export async function ocrPdfToWord(
   pageNumbers: number[] | null,
   onProgress: (progress: OcrProgress) => void,
   isCancelled: () => boolean = () => false,
+  topics: Topic[] = [],
 ): Promise<OcrResult> {
   const bytes = new Uint8Array(await file.arrayBuffer())
   const loaded = await loadPdf(bytes)
@@ -174,11 +182,22 @@ export async function ocrPdfToWord(
       page: total,
       total,
       percent: 94,
-      label: 'إنشاء ملف Word…',
+      label: topics.length > 0 ? 'مطابقة الموضوع وإنشاء Word…' : 'إنشاء ملف Word…',
     })
 
+    let workingPages = pages
+    let matchedPages = pages.map((page) => page.pageNumber)
+    if (topics.length > 0) {
+      workingPages = pages.filter((page, index) => {
+        if (index === 0) return true
+        const scored = scorePage([normalizeArabic(page.logicalText)], topics, 'balanced')
+        return scored.matched.length > 0
+      })
+      matchedPages = workingPages.map((page) => page.pageNumber)
+    }
+
     const base = file.name.replace(/\.pdf$/i, '').replace(/[\\/:*?"<>|]/g, ' ').trim() || 'مستند'
-    const firstPage = pages.find((page) => page.pageNumber === 1) ?? pages[0]
+    const firstPage = workingPages.find((page) => page.pageNumber === 1) ?? workingPages[0]
     const firstLines = firstPage?.lines ?? []
     const cover: CoverInfo = {
       title: firstPageTitle(firstLines, base),
@@ -191,19 +210,38 @@ export async function ocrPdfToWord(
     const blob = await buildWordDocument({
       fileName: file.name,
       cover,
-      pages,
-      pageNumbers: pages.map((page) => page.pageNumber),
+      pages: workingPages,
+      pageNumbers: workingPages.map((page) => page.pageNumber),
       repeatedEdgeLines: new Set(),
-      topicLabels: ['نسخة OCR'],
+      topicLabels: topics.length > 0 ? topics.map((topic) => topic.display) : ['نسخة OCR'],
       filterRepeatedTitle: false,
     })
     const name = `${base} — OCR.docx`
+    const pdf = await PDFDocument.create()
+    const sourcePdf = await PDFDocument.load(bytes, { ignoreEncryption: true })
+    const copied = await pdf.copyPages(
+      sourcePdf,
+      workingPages.map((page) => page.pageNumber - 1),
+    )
+    for (const page of copied) pdf.addPage(page)
+    pdf.setTitle(`${cover.title} — OCR`)
+    if (topics.length > 0) {
+      pdf.setSubject(`الصفحات المطابقة للموضوع: ${topics.map((topic) => topic.display).join('، ')}`)
+    }
+    const pdfBytes = await pdf.save()
+    const pdfBlob = new Blob([pdfBytes as BlobPart], { type: 'application/pdf' })
+    const pdfName = `${base} — OCR.pdf`
     onProgress({ phase: 'done', page: total, total, percent: 100, label: 'الملف جاهز' })
     return {
       blob,
       name,
-      pageCount: pages.length,
-      text: pages.map((page) => page.logicalText).join('\n\n'),
+      pdfBlob,
+      pdfName,
+      pageCount: workingPages.length,
+      totalPages: pages.length,
+      matchedPages,
+      topic: topics.map((topic) => topic.display).join('، '),
+      text: workingPages.map((page) => page.logicalText).join('\n\n'),
     }
   } finally {
     await worker?.terminate().catch(() => undefined)

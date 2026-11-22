@@ -3,6 +3,7 @@ import { AlertTriangle, Download, FileText, Loader2, ScanText, X } from 'lucide-
 import { ocrPdfToWord } from '../lib/ocr'
 import type { OcrProgress } from '../lib/ocr'
 import { downloadBlob } from '../lib/extract'
+import { parseTopics } from '../lib/text'
 
 interface OcrDialogProps {
   open: boolean
@@ -12,9 +13,15 @@ interface OcrDialogProps {
 interface OcrReady {
   blob: Blob
   name: string
+  pdfBlob: Blob
+  pdfName: string
   pageCount: number
+  totalPages: number
+  matchedPages: number[]
+  topic: string
   text: string
   url: string
+  pdfUrl: string
 }
 
 function parsePageRange(value: string): number[] | null {
@@ -40,6 +47,7 @@ function parsePageRange(value: string): number[] | null {
 
 export function OcrDialog({ open, onClose }: OcrDialogProps) {
   const [file, setFile] = useState<File | null>(null)
+  const [topicInput, setTopicInput] = useState('')
   const [rangeMode, setRangeMode] = useState<'all' | 'custom'>('all')
   const [rangeText, setRangeText] = useState('')
   const [running, setRunning] = useState(false)
@@ -52,14 +60,20 @@ export function OcrDialog({ open, onClose }: OcrDialogProps) {
 
   useEffect(() => {
     return () => {
-      if (readyRef.current) URL.revokeObjectURL(readyRef.current.url)
+      if (readyRef.current) {
+        URL.revokeObjectURL(readyRef.current.url)
+        URL.revokeObjectURL(readyRef.current.pdfUrl)
+      }
     }
   }, [])
 
   if (!open) return null
 
   const setReadySafe = (value: OcrReady | null) => {
-    if (readyRef.current) URL.revokeObjectURL(readyRef.current.url)
+    if (readyRef.current) {
+      URL.revokeObjectURL(readyRef.current.url)
+      URL.revokeObjectURL(readyRef.current.pdfUrl)
+    }
     readyRef.current = value
     setReady(value)
   }
@@ -102,9 +116,11 @@ export function OcrDialog({ open, onClose }: OcrDialogProps) {
         customPages,
         (update) => setProgress(update),
         () => cancelRef.current,
+        parseTopics(topicInput),
       )
       const url = URL.createObjectURL(result.blob)
-      setReadySafe({ ...result, url })
+      const pdfUrl = URL.createObjectURL(result.pdfBlob)
+      setReadySafe({ ...result, url, pdfUrl })
       setProgress({ phase: 'done', page: result.pageCount, total: result.pageCount, percent: 100, label: 'الملف جاهز' })
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : ''
@@ -157,6 +173,22 @@ export function OcrDialog({ open, onClose }: OcrDialogProps) {
             <span dir="auto">{file ? file.name : 'اختر ملف PDF واحدًا'}</span>
             <em>{file ? `${(file.size / (1024 * 1024)).toFixed(1)} م.ب` : 'حتى 15 م.ب'}</em>
           </button>
+
+          <div className="ocr-topic-field">
+            <label className="field-label" htmlFor="ocr-topic">
+              الموضوع المطلوب <span>(اختياري)</span>
+            </label>
+            <input
+              id="ocr-topic"
+              type="text"
+              className="ocr-range-input ocr-topic-input"
+              placeholder="مثال: تقدير الذات"
+              value={topicInput}
+              onChange={(event) => setTopicInput(event.target.value)}
+              disabled={running}
+            />
+            <p>إذا كتبت موضوعًا، تُطابق الصفحات بعد OCR ويُصدَّر المطابق فقط.</p>
+          </div>
 
           <div className="ocr-range">
             <span className="field-label">الصفحات</span>
@@ -227,12 +259,27 @@ export function OcrDialog({ open, onClose }: OcrDialogProps) {
           {ready && (
             <div className="ocr-result">
               <div>
-                <strong>تم إنشاء Word من {ready.pageCount} صفحة</strong>
-                <span>راجع النص المستخرج قبل الاستخدام.</span>
+                <strong>
+                  تم إنشاء PDF وWord من {ready.pageCount} صفحة
+                  {ready.topic ? ` · ${ready.totalPages} صفحة تم OCRها` : ''}
+                </strong>
+                <span>
+                  {ready.topic
+                    ? `الموضوع: ${ready.topic} — الصفحات المطابقة: ${ready.matchedPages.join('، ')}`
+                    : 'راجع النص المستخرج قبل الاستخدام.'}
+                </span>
               </div>
               <button
                 type="button"
                 className="button button-primary button-small"
+                onClick={() => downloadBlob(ready.pdfBlob, ready.pdfName)}
+              >
+                <Download size={16} />
+                تنزيل PDF
+              </button>
+              <button
+                type="button"
+                className="button button-word button-small"
                 onClick={() => downloadBlob(ready.blob, ready.name)}
               >
                 <Download size={16} />
