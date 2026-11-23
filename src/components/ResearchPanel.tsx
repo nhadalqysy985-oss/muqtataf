@@ -41,6 +41,7 @@ export function ResearchPanel({ results, apiKey, onUsage }: ResearchPanelProps) 
 
   const sources = useMemo(() => collectResearchSources(results), [results])
   const availablePages = sources.reduce((total, source) => total + source.pages.length, 0)
+  const hasMatches = results.some((result) => result.matches.length > 0)
   const canWrite = sources.length > 0 && request.trim().length >= 3
   const validation = useMemo(
     () => (output ? validateResearchCitations(output, sources) : null),
@@ -84,6 +85,10 @@ export function ResearchPanel({ results, apiKey, onUsage }: ResearchPanelProps) 
     try {
       const answer = await askResearcher(apiKey, request, sources, onUsage)
       const cleaned = cleanResearchOutput(answer.text)
+      if (!cleaned.text.trim()) {
+        setError('لم يُنتج النموذج نصًا علميًا صالحًا بعد التنظيف. أعد المحاولة بصفحات محتوى أخرى.')
+        return
+      }
       setOutput(cleaned.text)
       setContentWarnings(cleaned.warnings)
       setFinishReason(answer.finishReason)
@@ -135,8 +140,9 @@ export function ResearchPanel({ results, apiKey, onUsage }: ResearchPanelProps) 
           <div className="research-empty">
             <AlertTriangle size={18} />
             <p>
-              لا توجد صفحات مطابقة يمكن للباحث الاعتماد عليها. غيّر الموضوع أو جرّب نطاقًا أوسع
-              للاستخراج أولًا.
+              {hasMatches
+                ? 'الصفحات المطابقة موجودة في المقتطف، لكن لا توجد فيها صفحات محتوى صالحة للباحث: إما أن رقم صفحتها المطبوع ليس رقمًا، أو أنها صفحة مراجع/مصادر. لذلك لم يُرسل أي شيء إلى النموذج.'
+                : 'لا توجد صفحات مطابقة يمكن للباحث الاعتماد عليها. غيّر الموضوع أو جرّب نطاقًا أوسع للاستخراج أولًا.'}
             </p>
           </div>
         ) : (

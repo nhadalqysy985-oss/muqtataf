@@ -33,12 +33,14 @@ export const RESEARCH_SYSTEM_PROMPT = `أنت باحث أكاديمي متخصص
 - ممنوع أي جملة عن الدراسة أو النص أو المقطع أو المستخدم أو عن غياب تعريف.
 - انقل أسماء الأبعاد والمصطلحات كما هي في النص حرفيًا.
 - لا تحدد عدد الأبعاد أو المراحل أو الأنواع إلا إذا كان مذكورًا صراحة في النص، وإذا كان النص مقطوعًا قل "من أهمها" أو "منها".
+- إذا كانت الصفحة قائمة مراجع أو مصادر أو فهرسًا، فتجاهلها تمامًا ولا تكتب عنها.
+- ممنوع أن تبدأ الإجابة أو أي فقرة بجملة عن عدم وجود تعريف، أو عن الصفحة/الصفحات المرفقة، أو عن أن الصفحة مخصصة للمراجع، أو عن حدود ما ورد في المصدر.
 
 رابعاً: التوثيق
 - يوضع التوثيق في نهاية الفقرة/الجملة قبل النقطة أو بعدها بشكل ثابت، بصيغة: (اللقب، السنة: الصفحة).
 - كل معلومة تُوثَّق بصفحتها الخاصة. إذا جمعت فقرة معلومات من صفحات مختلفة، وثّق كل جملة على حدة.
 - النزاهة العلمية: إذا ذكرت الرسالة تعريفاً لباحث آخر (مثل Northouse, 2001)، فأنت لم تقرأ مصدره الأصلي، فاكتب: "عرّفها نورثهاوس (2001) نقلاً عن (الغزالي، 2012: 12)". لا تنسب المعلومة للباحث الداخلي كأنك رجعت له مباشرة.
-- لا تخترع مصدراً أو رقم صفحة أبداً. إذا لم تجد المعلومة في الملفات، قل: "لم أجد هذه المعلومة في المصادر المرفقة".
+- لا تخترع مصدراً أو رقم صفحة أبداً. اكتفِ بما ورد فقط، ولا تكتب أي فقرة عن غياب المعلومة أو عن الصفحات أو عن حدود المصدر.
 
 خامساً: في نهاية كل إجابة
 أضف قائمة مراجع بالصيغة:
@@ -123,6 +125,21 @@ export function detectPrintedPageNumber(text: string): string | null {
     if (page) return page
   }
   return null
+}
+
+export function isReferencePage(text: string): boolean {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => cleanDisplay(line))
+    .filter(Boolean)
+  const head = lines.slice(0, 4).map((line) => normalizeArabic(line).replace(/[.:：]/g, '').trim())
+  const heading = /^(?:قايمه\s+)?(?:المصادر\s*و\s*المراجع|المراجع\s*و\s*المصادر|قايمه\s+المراجع|قايمه\s+المصادر|المصادر|المراجع|bibliography|references)$/
+  if (head.some((line) => heading.test(line))) return true
+
+  const yearLines = lines.filter((line) =>
+    /(?<!\d)(19|20)\d{2}(?!\d)/.test(normalizeDigits(line)),
+  )
+  return lines.length >= 8 && yearLines.length >= 5 && yearLines.length / lines.length >= 0.35
 }
 
 export function buildCitation(cover: CoverInfo): ResearchCitation {
@@ -271,6 +288,8 @@ export interface CleanResearchResult {
 }
 
 const WARNING_START = /^(?:تنبيه|ملاحظة|ملحوظة)(?:\s|:|：|$)/
+const META_START =
+  /^(?:لم أجد|لم يُعرَّف|لم يعرف|لم يُعرف|الصفحة المرفقة|الصفحات المرفقة|لا تتضمن|لم تتضمن|قائمة المصادر|قائمة المراجع|المصادر والمراجع|تشير الصفحة|يظهر من سياق العرض)/
 
 export function cleanResearchOutput(raw: string): CleanResearchResult {
   let text = raw
@@ -292,9 +311,11 @@ export function cleanResearchOutput(raw: string): CleanResearchResult {
     .split(/\n{2,}/)
     .map((paragraph) => {
       const lines = paragraph.split(/\n/).map((line) => line.trimEnd())
-      if (lines.length > 0 && WARNING_START.test(lines[0].trim())) return ''
+      if (lines.length > 0 && (WARNING_START.test(lines[0].trim()) || META_START.test(lines[0].trim()))) {
+        return ''
+      }
       return lines
-        .filter((line) => !WARNING_START.test(line.trim()))
+        .filter((line) => !WARNING_START.test(line.trim()) && !META_START.test(line.trim()))
         .join('\n')
         .trim()
     })
@@ -305,8 +326,10 @@ export function cleanResearchOutput(raw: string): CleanResearchResult {
   const normalized = normalizeArabic(text)
   const checks: Array<[string, string]> = [
     ['لم يُعرَّف', 'وردت عبارة «لم يُعرَّف» في النص.'],
+    ['لم أجد', 'وردت عبارة «لم أجد» في النص.'],
     ['يظهر من سياق العرض', 'وردت عبارة «يظهر من سياق العرض» في النص.'],
     ['لم يتضمن المقطع', 'وردت عبارة «لم يتضمن المقطع» في النص.'],
+    ['الصفحة المرفقة', 'ورد ذكر «الصفحة المرفقة» داخل النص.'],
     ['الصفحات المرفقة', 'ورد ذكر «الصفحات المرفقة» داخل النص.'],
   ]
   const warnings = checks
@@ -468,6 +491,7 @@ export function collectResearchSources(results: SourceResult[]): ResearchSource[
       const pages = result.researchPages
         .filter((page) => page.pdfPage !== 1)
         .filter((page) => /^\d+$/.test(page.printedPage.trim()))
+        .filter((page) => !isReferencePage(page.text))
         .map((page) => ({
           printedPage: page.printedPage,
           text: page.text,
