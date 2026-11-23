@@ -32,6 +32,7 @@ const RESEARCH_EXAMPLES = [
 export function ResearchPanel({ results, apiKey, onUsage }: ResearchPanelProps) {
   const [request, setRequest] = useState('')
   const [output, setOutput] = useState('')
+  const [finishReason, setFinishReason] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -43,9 +44,14 @@ export function ResearchPanel({ results, apiKey, onUsage }: ResearchPanelProps) 
     () => (output ? validateResearchCitations(output, sources) : null),
     [output, sources],
   )
+  const wordCount = useMemo(
+    () => (output.trim() ? output.trim().split(/\s+/).filter(Boolean).length : 0),
+    [output],
+  )
 
   useEffect(() => {
     setOutput('')
+    setFinishReason('')
     setError('')
     setCopied(false)
   }, [results])
@@ -69,10 +75,12 @@ export function ResearchPanel({ results, apiKey, onUsage }: ResearchPanelProps) 
     setLoading(true)
     setError('')
     setOutput('')
+    setFinishReason('')
     setCopied(false)
     try {
-      const text = await askResearcher(apiKey, request, sources, onUsage)
-      setOutput(text)
+      const answer = await askResearcher(apiKey, request, sources, onUsage)
+      setOutput(answer.text)
+      setFinishReason(answer.finishReason)
     } catch (reason) {
       setError(
         reason instanceof Error
@@ -204,6 +212,21 @@ export function ResearchPanel({ results, apiKey, onUsage }: ResearchPanelProps) 
                 <div className="research-output" dir="auto">
                   {output}
                 </div>
+                <div className="research-stats">
+                  <span>عدد الكلمات: {wordCount}</span>
+                  <span className={finishReason === 'length' ? 'is-warning' : ''}>
+                    finish_reason: {finishReason || 'غير معروف'}
+                  </span>
+                </div>
+                {wordCount > 550 && (
+                  <div className="research-truncated">
+                    تنبيه: النص تجاوز 550 كلمة (السقف المطلوب 500). لم يُقطع النص، لكن يُفضّل
+                    تقليصه.
+                  </div>
+                )}
+                {finishReason === 'length' && (
+                  <div className="research-truncated">تنبيه: النص مقطوع (finish_reason: length).</div>
+                )}
                 {validation && (
                   <div
                     className={`research-validation ${

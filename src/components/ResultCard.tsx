@@ -66,6 +66,43 @@ export function ResultCard({ result, index }: ResultCardProps) {
               {result.cover.university && <span dir="auto">{result.cover.university}</span>}
             </div>
           )}
+          <div className="cover-audit">
+            <span className="cover-audit-title">بيانات الغلاف المستخرجة</span>
+            <dl>
+              <div>
+                <dt>أسماء الباحثين</dt>
+                <dd dir="auto">{result.cover.authors || 'غير واضحة'}</dd>
+              </div>
+              <div>
+                <dt>اللقب للتوثيق</dt>
+                <dd dir="auto">
+                  {result.citation.surnames.length > 0
+                    ? result.citation.surnames.join('، ')
+                    : 'غير واضح'}
+                </dd>
+              </div>
+              <div>
+                <dt>السنة</dt>
+                <dd>{result.citation.year}</dd>
+              </div>
+              <div>
+                <dt>سطر أخذ الباحث</dt>
+                <dd dir="auto">{result.cover.authorLine || 'غير واضح'}</dd>
+              </div>
+              <div>
+                <dt>سطر أخذ السنة</dt>
+                <dd dir="auto">{result.cover.yearLine || 'غير واضح'}</dd>
+              </div>
+            </dl>
+            {result.cover.nameWarnings && result.cover.nameWarnings.length > 0 && (
+              <div className="cover-audit-warning">
+                <AlertTriangle size={13} />
+                {result.cover.nameWarnings.map((warning) => (
+                  <span key={warning}>{warning}</span>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         <span className={`result-badge ${hasMatches ? 'is-success' : 'is-warn'}`}>

@@ -28,7 +28,11 @@ export interface CoverInfo {
   title: string
   authors: string
   authorNames?: string[]
+  authorLine?: string
+  surnameLine?: string
+  nameWarnings?: string[]
   year: string
+  yearLine?: string
   hijriYear?: string
   university?: string
   country?: string

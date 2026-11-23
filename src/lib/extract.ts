@@ -37,7 +37,7 @@ function pageLines(text: string): string[] {
     .filter((line) => line.length > 0)
 }
 
-function extractAuthors(lines: string[]): string {
+function extractAuthors(lines: string[]): { authors: string; sourceLine: string } {
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]
     const match = line.match(AUTHOR_MARKER)
@@ -46,12 +46,131 @@ function extractAuthors(lines: string[]): string {
         .replace(/\s*(?:إشراف|اشراف|المشرف|لجنة المناقشة)\s*[:：].*$/u, '')
         .replace(/^[:\-–،.\s]+|[:\-–،.\s]+$/g, '')
         .trim()
-      if (inline.length >= 3 && inline.length <= 100) return inline
+      if (inline.length >= 3 && inline.length <= 100) {
+        return { authors: inline, sourceLine: line }
+      }
       const next = lines[index + 1]
-      if (next && next.length >= 3 && next.length <= 100) return next
+      if (next && next.length >= 3 && next.length <= 100) {
+        return { authors: next, sourceLine: next }
+      }
     }
   }
-  return ''
+  return { authors: '', sourceLine: '' }
+}
+
+const COMMON_GIVEN_NAMES = [
+  'عبدالرحمن',
+  'عبدالله',
+  'عبدالعزيز',
+  'عبدالكريم',
+  'عبدالحكيم',
+  'عبدالرزاق',
+  'محمد',
+  'أحمد',
+  'احمد',
+  'محمود',
+  'مصطفى',
+  'إبراهيم',
+  'ابراهيم',
+  'علي',
+  'حسن',
+  'حسين',
+  'خالد',
+  'سعيد',
+  'سعد',
+  'يوسف',
+  'عمر',
+  'عثمان',
+  'سليمان',
+  'سليمة',
+  'فاطمة',
+  'مريم',
+  'زينب',
+  'نور',
+  'هدى',
+  'سارة',
+  'ليلى',
+  'رانيا',
+  'صفاء',
+  'حافظ',
+  'عارف',
+  'ياسر',
+  'ناصر',
+  'قاسم',
+  'كريم',
+  'رحيم',
+  'جاسم',
+  'عباس',
+  'حيدر',
+  'أمير',
+  'امين',
+  'آمنة',
+  'آية',
+  'إسراء',
+  'اسراء',
+  'دعاء',
+  'شهد',
+  'رقية',
+  'سجى',
+  'تبارك',
+  'ملاك',
+  'بنين',
+  'غادة',
+  'غيداء',
+  'شيماء',
+  'أسماء',
+  'اسماء',
+]
+
+function repairGluedName(token: string): { text: string; warning?: string } {
+  if (token.includes(' ') || token.length < 8) return { text: token }
+  if (COMMON_GIVEN_NAMES.includes(token)) return { text: token }
+  const prefixes = [...COMMON_GIVEN_NAMES]
+    .filter((name) => name.length >= 3 && token.startsWith(name))
+    .sort((a, b) => b.length - a.length)
+  for (const prefix of prefixes) {
+    const rest = token.slice(prefix.length)
+    if (rest.length >= 2) {
+      return { text: `${prefix} ${rest}` }
+    }
+  }
+  return {
+    text: token,
+    warning: `اسم ملصوق لم أتمكن من فصله بثقة: «${token}». يرجى مراجعته يدويًا.`,
+  }
+}
+
+function repairAuthors(rawAuthors: string): { authors: string; names: string[]; warnings: string[] } {
+  const rawNames = splitAuthorNames(rawAuthors)
+  if (rawNames.length === 0) return { authors: '', names: [], warnings: [] }
+  const warnings: string[] = []
+  const names = rawNames.map((name) => {
+    const repaired = repairGluedName(name)
+    if (repaired.warning) warnings.push(repaired.warning)
+    return repaired.text
+  })
+  return { authors: names.join(' و '), names, warnings }
+}
+
+function extractYearFromCover(lines: string[]): { year: string; line: string } {
+  let academic: { year: number; line: string } | null = null
+  let single: { year: number; line: string } | null = null
+
+  for (const line of lines) {
+    const normalized = normalizeDigits(line)
+    const range = normalized.match(/(20\d{2})\s*[/\-]\s*(20\d{2})/)
+    if (range) {
+      const year = Math.max(Number(range[1]), Number(range[2]))
+      if (!academic || year > academic.year) academic = { year, line }
+      continue
+    }
+    const match = normalized.match(/(?<!\d)(19|20)\d{2}(?!\d)/)
+    if (match && !single) single = { year: Number(match[0]), line }
+  }
+
+  if (academic) return { year: `${academic.year}م`, line: academic.line }
+  if (single) return { year: `${single.year}م`, line: single.line }
+  return { year: '', line: '' }
 }
 
 function extractCover(pages: Array<{ index: number; text: string }>, fileName: string): CoverInfo {
@@ -70,16 +189,21 @@ function extractCover(pages: Array<{ index: number; text: string }>, fileName: s
   const title = titleCandidates[0] ?? fallback
 
   const normalizedAll = normalizeArabic(lines.join(' '))
-  const yearMatch = normalizeDigits(lines.join(' ')).match(/(?<!\d)(19|20)\d{2}(?!\d)/)
+  const yearInfo = extractYearFromCover(lines)
   const universityLine = lines.find((line) => /(جامعه|كليه|معهد)/.test(normalizeArabic(line)))
   const degree = DEGREE.exec(normalizedAll)?.[1]
-  const authors = extractAuthors(lines)
+  const authorInfo = extractAuthors(lines)
+  const repaired = repairAuthors(authorInfo.authors)
 
   return {
     title,
-    authors,
-    authorNames: splitAuthorNames(authors),
-    year: yearMatch ? `${yearMatch[0]}م` : '',
+    authors: repaired.authors,
+    authorNames: repaired.names,
+    authorLine: authorInfo.sourceLine,
+    surnameLine: authorInfo.sourceLine,
+    nameWarnings: repaired.warnings,
+    year: yearInfo.year,
+    yearLine: yearInfo.line,
     university: universityLine,
     country: detectCountry(lines),
     degree,

@@ -2,7 +2,7 @@ import type { PDFPageProxy } from 'pdfjs-dist'
 import type { CoverInfo, ResearchCitation, SourceResult } from './types'
 import type { UsageEvent } from './deepseek'
 import { loadPdf } from './pdf'
-import { cleanDisplay, normalizeDigits } from './text'
+import { cleanDisplay, normalizeArabic, normalizeDigits } from './text'
 
 export const RESEARCH_SYSTEM_PROMPT = `أنت باحث أكاديمي متخصص في الكتابة العلمية باللغة العربية. مصدر معلوماتك الوحيد هو ملفات PDF (رسائل وأطاريح جامعية) المرفقة في هذه المحادثة. مهمتك كتابة نصوص بحثية رصينة بأسلوبك الخاص مع توثيق دقيق.
 
@@ -15,11 +15,14 @@ export const RESEARCH_SYSTEM_PROMPT = `أنت باحث أكاديمي متخصص
 
 ثانياً: رقم الصفحة
 - استخدم رقم الصفحة المطبوع على صفحة الرسالة نفسها (أعلى أو أسفل الصفحة)، وليس رقم ترتيب الصفحة في ملف PDF، وليس أرقام المصادر أو الهوامش داخل المتن.
+- قد يكون رقم الصفحة رقمًا أو حرفًا عربيًا (أ، ب، ج، د...). اقبله كما هو.
 - حوّل الأرقام الهندية (١٢) إلى أرقام عربية/لاتينية (12).
 - إذا امتدت المعلومة على صفحتين: (الغزالي، 2012: 12-13).
 - إذا لم تستطع قراءة رقم الصفحة بوضوح، لا تخمّن؛ اكتب [رقم الصفحة غير واضح] ونبّه المستخدم.
 
 ثالثاً: أسلوب الكتابة
+- الحد الأقصى 500 كلمة، وهذا سقف وليس هدفًا. اكتب كل ما تحتويه الصفحات المرفقة عن الموضوع، وإذا كانت المادة قليلة فاكتب أقل وتوقف عند آخر معلومة موثقة.
+- ممنوع التطويل بكلام عام أو التكرار أو الحشو. لا تضف معلومات من خارج المقاطع، ولا تكرر الفكرة بألفاظ مختلفة.
 - أعد صياغة الفكرة بأسلوب باحث متخصص: حلّل، اربط، أعد ترتيب الجمل. ممنوع النسخ واللصق أو تغيير كلمات قليلة فقط.
 - حافظ على المعنى بدقة؛ لا تضف معلومة غير موجودة في الصفحة المُوثَّقة.
 - لغة أكاديمية رصينة، جمل واضحة، بدون حشو.
@@ -89,16 +92,29 @@ export function detectPrintedPageNumber(text: string): string | null {
     .split(/\r?\n/)
     .map((line) => cleanDisplay(line))
     .filter(Boolean)
-  const candidates = [...lines.slice(0, 3), ...lines.slice(-3)]
-  for (const line of candidates) {
+
+  const matchPage = (line: string): string | null => {
     const normalized = normalizeDigits(line)
     const match = normalized.match(
-      /^(?:[-–—:.\s]*)(?:صفحة|صفحه|page)?\s*([0-9]{1,4})\s*(?:[-–—:.\s]*)$/i,
+      /^(?:[-–—:.\s]*)(?:صفحة|صفحه|page)?\s*([0-9]{1,4}|[\u0621-\u064A])\s*(?:[-–—:.\s]*)$/i,
     )
-    if (!match) continue
-    const value = Number(match[1])
-    if (value >= 1900 && value <= 2100) continue
-    return String(value)
+    if (!match) return null
+    const value = match[1]
+    if (/^\d+$/.test(value)) {
+      const number = Number(value)
+      if (number >= 1900 && number <= 2100) return null
+    }
+    return value
+  }
+
+  // Header first; footer only if the header has no page marker.
+  for (const line of lines.slice(0, 3)) {
+    const page = matchPage(line)
+    if (page) return page
+  }
+  for (const line of lines.slice(-3).reverse()) {
+    const page = matchPage(line)
+    if (page) return page
   }
   return null
 }
@@ -194,20 +210,23 @@ export function validateResearchCitations(
       const year = lastYear[0]
       let before = segment.slice(0, lastYear.index ?? 0)
       if (!before.replace(/[،,\s]/g, '')) continue
-      const citedIndex = before.lastIndexOf('نقلاً عن')
-      const citedIndexEn = before.toLowerCase().lastIndexOf('as cited in')
-      if (citedIndex >= 0) before = before.slice(citedIndex + 'نقلاً عن'.length)
-      if (citedIndexEn >= 0) before = before.slice(citedIndexEn + 'as cited in'.length)
+      const secondary = before.match(/(?:نقلاً عن|نقلًا عن|نقلا عن|as cited in)\s*(.*)$/i)
+      if (secondary) before = secondary[1]
+      const beforeNormalized = normalizeArabic(before)
       const after = segment.slice((lastYear.index ?? 0) + 4)
-      const pageMatch = after.match(/:\s*([0-9]{1,4}(?:\s*[-–]\s*[0-9]{1,4})?)/)
+      const pageMatch = after.match(
+        /:\s*((?:[0-9]{1,4}|[\u0621-\u064A])(?:\s*[-–]\s*(?:[0-9]{1,4}|[\u0621-\u064A]))?)/,
+      )
       const citationText = `(${segment})`
       const source = sources.find((candidate) => {
         if (candidate.citation.year !== year) return false
-        return candidate.citation.surnames.some((surname) => before.includes(surname))
-      }) ?? sources.find((candidate) => candidate.citation.year === year)
+        return candidate.citation.surnames.some((surname) =>
+          beforeNormalized.includes(normalizeArabic(surname)),
+        )
+      })
 
       if (!source) {
-        addIssue(citationText, 'المصدر أو السنة غير موجودة في المقاطع المرفقة.')
+        addIssue(citationText, 'لقب الباحث أو السنة غير موجود في أسماء الغلاف المرفقة.')
         continue
       }
       if (!pageMatch) {
@@ -398,12 +417,17 @@ export function collectResearchSources(results: SourceResult[]): ResearchSource[
     }))
 }
 
+export interface ResearchAnswer {
+  text: string
+  finishReason: string
+}
+
 export async function askResearcher(
   apiKey: string,
   request: string,
   sources: ResearchSource[],
   onUsage?: (event: UsageEvent) => void,
-): Promise<string> {
+): Promise<ResearchAnswer> {
   if (!apiKey.trim()) throw new Error('أدخل مفتاح DeepSeek API أولًا.')
   if (sources.length === 0) throw new Error('لا توجد صفحات مستخرجة يمكن الاعتماد عليها.')
   if (request.trim().length < 3) throw new Error('اكتب طلبك البحثي أولًا.')
@@ -457,7 +481,7 @@ export async function askResearcher(
 
   const raw = await response.text()
   let data: {
-    choices?: Array<{ message?: { content?: string } }>
+    choices?: Array<{ message?: { content?: string }; finish_reason?: string }>
     usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
     error?: { message?: string }
   }
@@ -494,5 +518,8 @@ export async function askResearcher(
     pages: 0,
   })
 
-  return content
+  return {
+    text: content,
+    finishReason: data.choices?.[0]?.finish_reason ?? 'unknown',
+  }
 }
