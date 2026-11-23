@@ -4,7 +4,7 @@ import { loadPdf, renderThumbnail } from './pdf'
 import { ocrWithDeepSeek } from './deepseek'
 import type { UsageEvent } from './deepseek'
 import { makeSnippet, normalizeArabic, scorePage } from './text'
-import { cleanDisplay, normalizeDigits } from './text'
+import { cleanDisplay, isRejectedNameWord, normalizeDigits } from './text'
 import {
   buildCitation,
   detectCountry,
@@ -52,19 +52,26 @@ function cleanPersonName(line: string): string {
     .trim()
 }
 
+function isInvalidAuthorName(name: string): boolean {
+  const normalized = normalizeArabic(cleanPersonName(name))
+  const tokens = normalized.split(/\s+/).filter(Boolean)
+  if (tokens.length === 0) return true
+  if (tokens.some((token) => isRejectedNameWord(token))) return true
+  if (INSTITUTION_LINE.test(normalized)) return true
+  if (RESEARCH_WORD.test(normalized)) return true
+  if (COUNTRY_LINE.test(normalized)) return true
+  if (EXCLUDED_ROLE.test(normalized)) return true
+  return false
+}
+
 function looksLikePersonName(line: string): boolean {
   if (/^(?:أ\.?\s*د\.?|أستاذ|الأستاذ|الدكتور|الدكتورة)\b/u.test(cleanDisplay(line))) {
     return false
   }
   const cleaned = cleanPersonName(line)
-  const normalized = normalizeArabic(cleaned)
   if (cleaned.length < 6 || cleaned.length > 80) return false
   if (/\d|@|https?:|www\./i.test(cleaned)) return false
-  if (INSTITUTION_LINE.test(normalized)) return false
-  if (EXCLUDED_ROLE.test(normalized)) return false
-  if (RESEARCH_WORD.test(normalized)) return false
-  if (COUNTRY_LINE.test(normalized)) return false
-  if (/^(?:أ\.?\s*د\.?|أستاذ|الدكتور|الدكتورة)\b/u.test(cleaned)) return false
+  if (isInvalidAuthorName(cleaned)) return false
   const tokens = cleaned.split(/\s+/).filter(Boolean)
   if (tokens.length < 2 || tokens.length > 6) return false
   return true
@@ -75,10 +82,21 @@ const BOILERPLATE =
 
 const DEGREE = /(ماجستير|دكتوراه|دبلوم|بكالوريوس)/
 
+function stripCoverMarkup(line: string): string {
+  return line
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\*\*|__/g, '')
+    .replace(/[*_`#>]/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function pageLines(text: string): string[] {
   return text
     .split(/\r?\n/)
-    .map((line) => cleanDisplay(line))
+    .map((line) => cleanDisplay(stripCoverMarkup(line)))
     .filter((line) => line.length > 0)
 }
 
@@ -97,7 +115,12 @@ function extractAuthors(
     const marker = line.match(AUTHOR_MARKER) ?? line.match(ROLE_MARKER)
     if (!marker) continue
     const inline = cleanInline(marker[1] ?? '')
-    if (inline.length >= 3 && inline.length <= 100 && !EXCLUDED_ROLE.test(inline)) {
+    if (
+      inline.length >= 3 &&
+      inline.length <= 100 &&
+      !EXCLUDED_ROLE.test(inline) &&
+      !isInvalidAuthorName(inline)
+    ) {
       return { authors: inline, sourceLine: line }
     }
     const next = lines[index + 1]
@@ -213,7 +236,7 @@ function repairAuthors(rawAuthors: string): { authors: string; names: string[]; 
     const repaired = repairGluedName(name)
     if (repaired.warning) warnings.push(repaired.warning)
     return repaired.text
-  })
+  }).filter((name) => !isInvalidAuthorName(name))
   return { authors: names.join(' و '), names, warnings }
 }
 

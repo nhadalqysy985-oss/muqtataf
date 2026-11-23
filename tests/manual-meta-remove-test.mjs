@@ -1,0 +1,40 @@
+﻿import { chromium } from 'playwright-core'
+import path from 'node:path'
+const root = path.resolve('muqtataf')
+const browser = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true })
+const page = await browser.newPage({ viewport: { width: 1300, height: 1200 } })
+let chatCalls = 0
+page.on('pageerror', (e) => console.log('PAGE_ERROR=', e.message))
+await page.route('https://api.deepseek.com/v1/tools/ocr', async (route) => {
+  if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'POST', 'access-control-allow-headers': 'authorization' } })
+  await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ page_count: 2, pages: [
+    { index: 0, text: '**مفهوم الإبداع التنظيمي**\n<tr><td>جامعة بغداد</td></tr>\nكلية الإدارة والاقتصاد\n2026\nالعراق', finish_reason: 'stop' },
+    { index: 1, text: '112\nالإبداع التنظيمي\nيعتمد الإبداع التنظيمي على توليد الأفكار الجديدة وتطبيقها.', finish_reason: 'stop' },
+  ], usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 } }) })
+})
+await page.route('https://api.deepseek.com/chat/completions', async (route) => { chatCalls += 1; await route.fulfill({ status: 500, body: '{}' }) })
+await page.goto('http://127.0.0.1:4178/', { waitUntil: 'networkidle' })
+await page.setInputFiles('input[type=file]', path.join(root, 'tests/fixtures/study1.pdf'))
+await page.fill('#topic', 'مفهوم الإبداع التنظيمي')
+await page.fill('.api-input input', 'sk-mock')
+await page.click('button.start-button')
+await page.waitForSelector('.result-card', { timeout: 60000 })
+console.log('BEFORE_AUDIT=', (await page.locator('.cover-audit').textContent())?.replace(/\s+/g, ' ').trim())
+console.log('BEFORE_WARNING=', (await page.locator('.result-meta-warning').textContent())?.replace(/\s+/g, ' ').trim())
+console.log('BEFORE_CLASS=', await page.locator('.result-card').getAttribute('class'))
+await page.click('.meta-edit-toggle')
+await page.fill('.meta-editor-row input', 'أحمد علي')
+await page.click('.meta-editor-actions .button-primary')
+await page.waitForTimeout(200)
+console.log('AFTER_AUDIT=', (await page.locator('.cover-audit').textContent())?.replace(/\s+/g, ' ').trim())
+console.log('AFTER_WARNING_COUNT=', await page.locator('.result-meta-warning').count())
+console.log('AFTER_CLASS=', await page.locator('.result-card').getAttribute('class'))
+console.log('RESEARCH_CITATION=', (await page.locator('.research-citation').textContent())?.replace(/\s+/g, ' ').trim())
+await page.click('.result-actions .button-danger')
+await page.waitForTimeout(200)
+console.log('RESULTS_AFTER_REMOVE=', await page.locator('.result-card').count())
+console.log('RESEARCH_AFTER_REMOVE=', await page.locator('.research-card').count())
+console.log('EMPTY_RESULTS=', (await page.locator('.empty-results').textContent())?.replace(/\s+/g, ' ').trim())
+console.log('CHAT_CALLS=', chatCalls)
+await page.screenshot({ path: path.join(root, 'tests/screenshots/31-manual-meta.png'), fullPage: false })
+await browser.close()

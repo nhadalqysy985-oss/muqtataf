@@ -2365,6 +2365,127 @@ ul {
   font-size: 0.56rem;
 }
 
+.result-card.has-meta-warning {
+  border-color: #dfa391;
+  box-shadow: 0 18px 40px -38px rgba(143, 59, 44, 0.65);
+}
+
+.result-meta .meta-missing {
+  padding: 1px 5px;
+  border: 1px solid #efc9bd;
+  border-radius: 5px;
+  background: #fdf0ea;
+  color: #9b3f2f;
+}
+
+.meta-missing-row {
+  margin-inline: -4px;
+  padding: 3px 4px;
+  border-radius: 5px;
+  background: #fdf0ea;
+}
+
+.meta-missing-row dt,
+.meta-missing-row dd {
+  color: #9b3f2f;
+}
+
+.result-meta-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin-top: 7px;
+  padding: 7px 9px;
+  border: 1px solid #efc9bd;
+  border-radius: 8px;
+  background: #fdf0ea;
+  color: #983d2d;
+  font-size: 0.58rem;
+  font-weight: 600;
+  line-height: 1.7;
+}
+
+.result-meta-warning svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.meta-edit-toggle {
+  margin-top: 8px;
+}
+
+.meta-editor {
+  margin-top: 9px;
+  padding: 10px;
+  border: 1px solid #dfd3bf;
+  border-radius: 9px;
+  background: #fffdf8;
+}
+
+.meta-editor .field-label {
+  margin-bottom: 5px;
+}
+
+.meta-editor-authors {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.meta-editor-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.meta-editor-row input,
+.meta-year-input {
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 1px solid #ddd2c0;
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 0.68rem;
+}
+
+.meta-editor-row input:focus,
+.meta-year-input:focus {
+  outline: none;
+  border-color: var(--green);
+  box-shadow: 0 0 0 2px rgba(14, 92, 74, 0.08);
+}
+
+.meta-add-author {
+  margin-top: 5px;
+  min-height: 28px;
+  font-size: 0.56rem;
+}
+
+.meta-year-input {
+  width: 96px;
+  margin-top: 2px;
+}
+
+.meta-editor-actions {
+  display: flex;
+  gap: 5px;
+  margin-top: 9px;
+}
+
+.button-danger {
+  border: 1px solid #e2b5a8;
+  background: #fdf1ec;
+  color: #963c2b;
+}
+
+.button-danger:hover:not(:disabled) {
+  border-color: #b85b45;
+  background: #f9e4dc;
+  color: #7d2f21;
+}
+
 .failures {
   margin-bottom: 14px;
   padding: 13px 15px;

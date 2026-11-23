@@ -27,6 +27,7 @@ import { FileDropzone } from './components/FileDropzone'
 import { ResultCard } from './components/ResultCard'
 import { ResearchPanel } from './components/ResearchPanel'
 import { buildZip, downloadBlob, extractSource } from './lib/extract'
+import { buildCitation } from './lib/research'
 import { extractsPhrase, pagesPhrase } from './lib/format'
 import { parseTopics } from './lib/text'
 import type { UsageEvent } from './lib/deepseek'
@@ -253,9 +254,42 @@ function App() {
     else if (accepted.length > 0) showToast(`تمت إضافة ${accepted.length} ملف.`, 'success')
   }
 
+  const removeResult = (id: string) => {
+    if (phase === 'processing') return
+    const target = resultsRef.current.find((result) => result.id === id)
+    if (target) URL.revokeObjectURL(target.outputUrl)
+    setResultsSafe((current) => current.filter((result) => result.id !== id))
+    setFailures((current) => current.filter((failure) => failure.id !== id))
+    setFiles((current) => current.filter((entry) => entry.id !== id))
+  }
+
+  const updateResultMeta = (id: string, authors: string[], year: string) => {
+    const names = authors.map((author) => author.trim()).filter(Boolean)
+    const normalizedYear = /^\d{4}$/.test(year.trim()) ? `${year.trim()}م` : ''
+    setResultsSafe((current) =>
+      current.map((result) => {
+        if (result.id !== id) return result
+        const cover = {
+          ...result.cover,
+          authors: names.join(' و '),
+          authorNames: names,
+          authorLine: names.length > 0 ? 'إدخال يدوي' : 'غير واضح',
+          surnameLine: names.length > 0 ? 'إدخال يدوي' : 'غير واضح',
+          nameWarnings: [],
+          year: normalizedYear,
+          yearLine: normalizedYear ? 'إدخال يدوي' : 'غير واضح',
+        }
+        return { ...result, cover, citation: buildCitation(cover) }
+      }),
+    )
+  }
+
   const removeFile = (id: string) => {
     if (phase === 'processing') return
-    if (phase === 'done') clearResults()
+    if (phase === 'done') {
+      removeResult(id)
+      return
+    }
     setFiles((current) => current.filter((entry) => entry.id !== id))
   }
 
@@ -881,7 +915,13 @@ function App() {
             ) : (
               <div className="results-grid">
                 {results.map((result, index) => (
-                  <ResultCard key={result.id} result={result} index={index} />
+                  <ResultCard
+                    key={result.id}
+                    result={result}
+                    index={index}
+                    onUpdateMeta={updateResultMeta}
+                    onRemove={removeResult}
+                  />
                 ))}
               </div>
             )}

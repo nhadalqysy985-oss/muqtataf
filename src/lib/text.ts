@@ -32,6 +32,49 @@ export function normalizeArabic(input: string): string {
     .trim()
 }
 
+export const NAME_REJECT_WORDS = new Set(
+  [
+    'الإلكترونية',
+    'الالكترونية',
+    'الشركة',
+    'الشركات',
+    'العامة',
+    'الأنظمة',
+    'الانظمة',
+    'جامعة',
+    'كلية',
+    'قسم',
+    'مجلة',
+    'بحث',
+    'دراسة',
+    'تحليل',
+    'المؤتمر',
+    'المجلد',
+    'العدد',
+    'الإدارة',
+    'الادارة',
+    'الاقتصاد',
+    'معهد',
+    'مركز',
+    'هيئة',
+    'وزارة',
+    'رسالة',
+    'أطروحة',
+    'ماجستير',
+    'دكتوراه',
+    'الباحث',
+    'الباحثة',
+    'الطالب',
+    'الطالبة',
+    'المؤلف',
+    'المؤلفة',
+  ].map(normalizeArabic),
+)
+
+export function isRejectedNameWord(word: string): boolean {
+  return NAME_REJECT_WORDS.has(normalizeArabic(word))
+}
+
 const COMMON_WORDS = new Set(
   [
     'في', 'من', 'على', 'الي', 'عن', 'ان', 'انه', 'انها', 'التي', 'الذي', 'الذين',

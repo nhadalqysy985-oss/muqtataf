@@ -2,7 +2,7 @@ import type { PDFPageProxy } from 'pdfjs-dist'
 import type { CoverInfo, ResearchCitation, SourceResult } from './types'
 import type { UsageEvent } from './deepseek'
 import { loadPdf } from './pdf'
-import { cleanDisplay, normalizeArabic, normalizeDigits } from './text'
+import { cleanDisplay, isRejectedNameWord, normalizeArabic, normalizeDigits } from './text'
 
 export const RESEARCH_SYSTEM_PROMPT = `أنت باحث أكاديمي متخصص في الكتابة العلمية باللغة العربية. مصدر معلوماتك الوحيد هو ملفات PDF (رسائل وأطاريح جامعية) المرفقة في هذه المحادثة. مهمتك كتابة نصوص بحثية رصينة بأسلوبك الخاص مع توثيق دقيق.
 
@@ -88,7 +88,10 @@ export function surnameOf(fullName: string): string {
     .replace(/^(?:أ\.?د\.?|د\.?|الدكتور|الدكتورة|الأستاذ|الأستاذة)\s+/, '')
     .trim()
   const parts = cleaned.split(/\s+/).filter(Boolean)
-  return parts[parts.length - 1] ?? cleaned
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    if (!isRejectedNameWord(parts[index])) return parts[index]
+  }
+  return ''
 }
 
 export function detectCountry(lines: string[]): string | undefined {
@@ -147,18 +150,18 @@ export function buildCitation(cover: CoverInfo): ResearchCitation {
   const authors = cover.authorNames?.length
     ? cover.authorNames
     : splitAuthorNames(cover.authors)
-  const surnames = authors.map(surnameOf).filter(Boolean)
-  const rawYear = (cover.year || 'السنة غير واضحة').replace(/\s*[مه]$/u, '').trim()
-  const year = rawYear || 'السنة غير واضحة'
-  let label = '(مصدر غير محدد، السنة غير واضحة)'
+  const validAuthors = authors.filter((author) => surnameOf(author))
+  const surnames = validAuthors.map(surnameOf).filter(Boolean)
+  const rawYear = (cover.year || '').replace(/\s*[مه]$/u, '').trim()
+  const year = /^\d{4}$/.test(rawYear) ? rawYear : 'السنة غير واضحة'
+  let label = `(باحث غير واضح، ${year})`
   if (surnames.length === 1) label = `(${surnames[0]}، ${year})`
   else if (surnames.length === 2) label = `(${surnames[0]} و${surnames[1]}، ${year})`
   else if (surnames.length >= 3) label = `(${surnames[0]} وآخرون، ${year})`
-  else if (cover.university) label = `(${cover.university}، ${year})`
 
   const degree = cover.degree ? `رسالة ${cover.degree}` : 'رسالة/أطروحة جامعية'
-  const referenceAuthors = authors.length
-    ? authors
+  const referenceAuthors = validAuthors.length
+    ? validAuthors
         .map((author) => {
           const surname = surnameOf(author)
           const parts = cleanDisplay(author)
@@ -169,13 +172,13 @@ export function buildCitation(cover: CoverInfo): ResearchCitation {
           return `${surname}، ${parts.slice(0, -1).join(' ')}`
         })
         .join('؛ ')
-    : cover.university || 'مصدر بدون اسم باحث'
+    : 'باحث غير واضح'
   const reference = `${referenceAuthors} (${year}). ${cover.title}. ${degree}، ${
     cover.university || 'جامعة غير محددة'
   }، ${cover.country || 'بلد غير محدد'}.`
 
   return {
-    authors,
+    authors: validAuthors,
     surnames,
     year,
     title: cover.title,
