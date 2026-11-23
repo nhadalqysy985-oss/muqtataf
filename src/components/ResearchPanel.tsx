@@ -213,7 +213,7 @@ export function ResearchPanel({ results, apiKey, onUsage }: ResearchPanelProps) 
                   {output}
                 </div>
                 <div className="research-stats">
-                  <span>عدد الكلمات: {wordCount}</span>
+                  <span>{wordCount} كلمة</span>
                   <span className={finishReason === 'length' ? 'is-warning' : ''}>
                     finish_reason: {finishReason || 'غير معروف'}
                   </span>
