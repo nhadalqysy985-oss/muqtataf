@@ -29,6 +29,10 @@ export const RESEARCH_SYSTEM_PROMPT = `أنت باحث أكاديمي متخصص
 - حافظ على المعنى بدقة؛ لا تضف معلومة غير موجودة في الصفحة المُوثَّقة.
 - لغة أكاديمية رصينة، جمل واضحة، بدون حشو.
 - الاقتباس الحرفي نادر، ويكون بين علامتي تنصيص مع الصفحة.
+- اكتب نصًا علميًا بحثيًا فقط بفقرات علمية وأكاديمية.
+- ممنوع أي جملة عن الدراسة أو النص أو المقطع أو المستخدم أو عن غياب تعريف.
+- انقل أسماء الأبعاد والمصطلحات كما هي في النص حرفيًا.
+- لا تحدد عدد الأبعاد أو المراحل أو الأنواع إلا إذا كان مذكورًا صراحة في النص، وإذا كان النص مقطوعًا قل "من أهمها" أو "منها".
 
 رابعاً: التوثيق
 - يوضع التوثيق في نهاية الفقرة/الجملة قبل النقطة أو بعدها بشكل ثابت، بصيغة: (اللقب، السنة: الصفحة).
@@ -261,10 +265,62 @@ export function validateResearchCitations(
   return { checked, valid, issues }
 }
 
+export interface CleanResearchResult {
+  text: string
+  warnings: string[]
+}
+
+const WARNING_START = /^(?:تنبيه|ملاحظة|ملحوظة)(?:\s|:|：|$)/
+
+export function cleanResearchOutput(raw: string): CleanResearchResult {
+  let text = raw
+    .replace(/```[\s\S]*?```/g, (block) => block.replace(/```/g, ''))
+    .replace(/\*\*/g, '')
+    .replace(/\*/g, '')
+    .replace(/`/g, '')
+    .replace(/^\s{0,3}#{1,6}\s*/gm, '')
+    .replace(/^\s*>\s?/gm, '')
+    .replace(/^\s*[-+]\s+/gm, '')
+    .replace(/^\s*---+\s*$/gm, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\u0640/g, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+
+  const paragraphs = text
+    .split(/\n{2,}/)
+    .map((paragraph) => {
+      const lines = paragraph.split(/\n/).map((line) => line.trimEnd())
+      if (lines.length > 0 && WARNING_START.test(lines[0].trim())) return ''
+      return lines
+        .filter((line) => !WARNING_START.test(line.trim()))
+        .join('\n')
+        .trim()
+    })
+    .filter(Boolean)
+
+  text = paragraphs.join('\n\n').trim()
+
+  const normalized = normalizeArabic(text)
+  const checks: Array<[string, string]> = [
+    ['لم يُعرَّف', 'وردت عبارة «لم يُعرَّف» في النص.'],
+    ['يظهر من سياق العرض', 'وردت عبارة «يظهر من سياق العرض» في النص.'],
+    ['لم يتضمن المقطع', 'وردت عبارة «لم يتضمن المقطع» في النص.'],
+    ['الصفحات المرفقة', 'ورد ذكر «الصفحات المرفقة» داخل النص.'],
+  ]
+  const warnings = checks
+    .filter(([phrase]) => normalized.includes(normalizeArabic(phrase)))
+    .map(([, message]) => message)
+
+  return { text, warnings }
+}
+
 export interface ResearchPageSource {
   printedPage: string
   text: string
   pdfPage?: number
+  outputPage?: number
 }
 
 export interface ResearchSource {
@@ -325,13 +381,15 @@ async function renderResearchImages(sources: ResearchSource[]): Promise<Research
       const limit = Math.min(perSource, source.pages.length, doc.numPages)
       for (let index = 0; index < limit; index += 1) {
         if (images.length >= MAX_IMAGES || totalChars >= MAX_IMAGE_DATA_CHARS) break
-        const page = await doc.getPage(index + 1)
+        const pageMeta = source.pages[index]
+        const outputPage = pageMeta?.outputPage ?? index + 1
+        if (outputPage < 1 || outputPage > doc.numPages) continue
+        const page = await doc.getPage(outputPage)
         const dataUrl = await pageToJpegDataUrl(page)
         page.cleanup()
         if (!dataUrl) continue
         if (totalChars + dataUrl.length > MAX_IMAGE_DATA_CHARS) break
         totalChars += dataUrl.length
-        const pageMeta = source.pages[index]
         images.push({
           sourceName: source.fileName,
           citationLabel: source.citation.label,
@@ -406,17 +464,24 @@ export function buildResearchContext(sources: ResearchSource[]): string {
 
 export function collectResearchSources(results: SourceResult[]): ResearchSource[] {
   return results
-    .filter((result) => result.matches.length > 0 && result.researchPages.length > 0)
-    .map((result) => ({
-      fileName: result.fileName,
-      citation: result.citation,
-      pages: result.researchPages.map((page) => ({
-        printedPage: page.printedPage,
-        text: page.text,
-        pdfPage: page.pdfPage,
-      })),
-      pdfBlob: result.outputBlob,
-    }))
+    .map((result) => {
+      const pages = result.researchPages
+        .filter((page) => page.pdfPage !== 1)
+        .filter((page) => /^\d+$/.test(page.printedPage.trim()))
+        .map((page) => ({
+          printedPage: page.printedPage,
+          text: page.text,
+          pdfPage: page.pdfPage,
+          outputPage: page.outputPage,
+        }))
+      return {
+        fileName: result.fileName,
+        citation: result.citation,
+        pages,
+        pdfBlob: result.outputBlob,
+      }
+    })
+    .filter((source) => source.pages.length > 0)
 }
 
 export interface ResearchAnswer {

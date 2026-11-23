@@ -123,7 +123,7 @@ const COMMON_GIVEN_NAMES = [
 ]
 
 function repairGluedName(token: string): { text: string; warning?: string } {
-  if (token.includes(' ') || token.length < 8) return { text: token }
+  if (token.includes(' ') || token.length < 6) return { text: token }
   if (COMMON_GIVEN_NAMES.includes(token)) return { text: token }
   const prefixes = [...COMMON_GIVEN_NAMES]
     .filter((name) => name.length >= 3 && token.startsWith(name))
@@ -136,7 +136,10 @@ function repairGluedName(token: string): { text: string; warning?: string } {
   }
   return {
     text: token,
-    warning: `اسم ملصوق لم أتمكن من فصله بثقة: «${token}». يرجى مراجعته يدويًا.`,
+    warning:
+      token.length >= 8
+        ? `اسم ملصوق لم أتمكن من فصله بثقة: «${token}». يرجى مراجعته يدويًا.`
+        : undefined,
   }
 }
 
@@ -302,11 +305,12 @@ export async function extractSource(
     (pageNumber, index, all) => all.indexOf(pageNumber) === index,
   )
   const researchPages: ResearchPage[] = researchPageNumbers
-    .map((pageNumber) => {
+    .map((pageNumber, index) => {
       const text = pageTextByNumber.get(pageNumber) ?? ''
       if (!text) return null
       return {
         pdfPage: pageNumber,
+        outputPage: index + 1,
         printedPage: detectPrintedPageNumber(text) ?? '',
         text,
       }

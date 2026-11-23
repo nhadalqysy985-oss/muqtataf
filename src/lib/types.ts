@@ -43,6 +43,7 @@ export interface CoverInfo {
 
 export interface ResearchPage {
   pdfPage: number
+  outputPage: number
   printedPage: string
   text: string
 }

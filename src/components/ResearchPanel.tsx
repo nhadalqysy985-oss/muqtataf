@@ -13,6 +13,7 @@ import type { UsageEvent } from '../lib/deepseek'
 import { pagesPhrase } from '../lib/format'
 import {
   askResearcher,
+  cleanResearchOutput,
   collectResearchSources,
   validateResearchCitations,
 } from '../lib/research'
@@ -33,6 +34,7 @@ export function ResearchPanel({ results, apiKey, onUsage }: ResearchPanelProps) 
   const [request, setRequest] = useState('')
   const [output, setOutput] = useState('')
   const [finishReason, setFinishReason] = useState('')
+  const [contentWarnings, setContentWarnings] = useState<string[]>([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -52,6 +54,7 @@ export function ResearchPanel({ results, apiKey, onUsage }: ResearchPanelProps) 
   useEffect(() => {
     setOutput('')
     setFinishReason('')
+    setContentWarnings([])
     setError('')
     setCopied(false)
   }, [results])
@@ -76,10 +79,13 @@ export function ResearchPanel({ results, apiKey, onUsage }: ResearchPanelProps) 
     setError('')
     setOutput('')
     setFinishReason('')
+    setContentWarnings([])
     setCopied(false)
     try {
       const answer = await askResearcher(apiKey, request, sources, onUsage)
-      setOutput(answer.text)
+      const cleaned = cleanResearchOutput(answer.text)
+      setOutput(cleaned.text)
+      setContentWarnings(cleaned.warnings)
       setFinishReason(answer.finishReason)
     } catch (reason) {
       setError(
@@ -226,6 +232,16 @@ export function ResearchPanel({ results, apiKey, onUsage }: ResearchPanelProps) 
                 )}
                 {finishReason === 'length' && (
                   <div className="research-truncated">تنبيه: النص مقطوع (finish_reason: length).</div>
+                )}
+                {contentWarnings.length > 0 && (
+                  <div className="research-content-warning">
+                    <strong>ملاحظات على النص:</strong>
+                    <ul>
+                      {contentWarnings.map((warning) => (
+                        <li key={warning}>{warning}</li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
                 {validation && (
                   <div

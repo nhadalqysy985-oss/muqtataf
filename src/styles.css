@@ -2742,6 +2742,27 @@ ul {
   line-height: 1.7;
 }
 
+.research-content-warning {
+  margin-top: 7px;
+  padding: 8px 10px;
+  border: 1px solid #eadcc7;
+  border-radius: 8px;
+  background: #fbf7ee;
+  color: #7f6435;
+  font-size: 0.56rem;
+  line-height: 1.8;
+}
+
+.research-content-warning strong {
+  display: block;
+  font-size: 0.6rem;
+}
+
+.research-content-warning ul {
+  margin: 4px 0 0;
+  padding-inline-start: 16px;
+}
+
 .research-validation.is-valid {
   border: 1px solid #cfe3d8;
   background: #eef6f1;
