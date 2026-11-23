@@ -710,6 +710,18 @@ ul {
   font-weight: 600;
 }
 
+.workbench-grid {
+  min-width: 0;
+}
+
+.workbench-grid > * {
+  min-width: 0;
+}
+
+.panel {
+  min-width: 0;
+}
+
 .file-list-head {
   margin: 18px 2px 8px;
   color: var(--muted);
@@ -721,6 +733,7 @@ ul {
   align-items: center;
   gap: 7px;
   width: 100%;
+  min-width: 0;
   padding: 0;
   border: 0;
   background: transparent;
@@ -731,6 +744,10 @@ ul {
 
 .file-list-toggle > span:first-child {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .file-list-toggle-label {
@@ -749,29 +766,8 @@ ul {
   transform: rotate(180deg);
 }
 
-.file-list-collapsed {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 9px 11px;
-  border: 1px dashed #ddd2c0;
-  border-radius: 9px;
-  background: #faf7f0;
-  color: #8e806b;
-  font-size: 0.62rem;
-}
-
-.file-list-collapsed button {
-  padding: 3px 7px;
-  border: 1px solid #d9cdb9;
-  border-radius: 999px;
-  background: #fffdf9;
-  color: var(--green);
-  font-size: 0.55rem;
-}
-
 .file-count {
+  flex: none;
   padding: 3px 8px;
   border-radius: 999px;
   background: #f0eadf;
@@ -800,9 +796,13 @@ ul {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   max-height: 218px;
   padding: 1px;
   list-style: none;
+  overflow-x: hidden;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: #d5cbb9 transparent;
@@ -812,6 +812,9 @@ ul {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   padding: 6px 8px;
   border: 1px solid var(--line-soft);
   border-radius: 9px;
@@ -843,11 +846,15 @@ ul {
   display: flex;
   flex: 1;
   min-width: 0;
+  overflow: hidden;
   flex-direction: column;
   gap: 2px;
 }
 
 .file-name {
+  display: block;
+  width: 100%;
+  max-width: 100%;
   overflow: hidden;
   color: var(--ink-soft);
   font-size: 0.73rem;
@@ -3325,7 +3332,7 @@ ul {
   }
 
   .workbench-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .upload-panel {

@@ -146,14 +146,7 @@ export function FileDropzone({
             </li>
           ))}
         </ul>
-      ) : (
-        <div className="file-list-collapsed">
-          <span>{files.length} ملفات مرفقة</span>
-          <button type="button" onClick={() => setListOpen(true)}>
-            عرض الملفات
-          </button>
-        </div>
-      )}
+      ) : null}
     </div>
   )
 }
