@@ -23,7 +23,52 @@ import type {
 } from './types'
 
 const AUTHOR_MARKER =
-  /(?:^|\s)(?:من\s+|قام\s+ب)?(?:إعداد|اعداد|أعداد)\s*(?:الطالبتان|الطالبان|الباحثتان|الباحثان|الطالبات|الطالب(?:ة|\/ة)?|الطلبة|الباحث(?:ة|\/ة)?|الباحثين)?\s*[:\-–]?\s*(.*)$/u
+  /(?:^|\s)(?:من\s+|قام\s+ب)?(?:إعداد|اعداد|أعداد|تأليف|تاليف)\s*(?:الطالبتان|الطالبان|الباحثتان|الباحثان|الطالبات|الطالب(?:ة|\/ة)?|الطلبة|الباحث(?:ة|\/ة)?|الباحثين)?\s*[:\-–]?\s*(.*)$/u
+
+const ROLE_MARKER =
+  /^(?:الباحث(?:ة)?|الطالب(?:ة)?|الطالبات|الطلبة|الطالبان|الطالبتان|الباحثان|الباحثتان|المؤلف(?:ة)?)\s*[:\-–]\s*(.+)$/u
+
+const TITLE_ROLE =
+  /^(?:أ\.?\s*د\.?|أستاذ|الأستاذ|الدكتور|الدكتورة|د\.)\s+/u
+
+const EXCLUDED_ROLE =
+  /^(?:إشراف|اشراف|بإشراف|بِإشراف|المشرف|لجنة|لجنه|تتألف|رئيس|عميد|مقوم|مقيم|مناقش|البريد|الملخص|المستخلص|abstract|كلمات|keywords)/i
+
+const INSTITUTION_LINE =
+  /(جامعه|كليه|قسم|معهد|مركز|هيئه|وزاره|مجله|journal|university|college|department|faculty|@|بريد|email|https?|www|doi|issn)/i
+
+const RESEARCH_WORD =
+  /(دراسه|دراسة|بحث|مقارنه|مقارنة|تحليل|تطبيق|رساله|رسالة|اطروحه|أطروحة|منهج|منهجيه|منهجية|ميدانيه|ميدانية|تجريبيه|تجريبية|نظريه|نظرية)/i
+
+const COUNTRY_LINE =
+  /^(?:العراق|الجزائر|اليمن|مصر|السعودية|المملكة العربية السعودية|الأردن|سوريا|لبنان|تونس|المغرب|ليبيا|السودان|فلسطين|الكويت|الإمارات|قطر|البحرين|عمان)$/u
+
+function cleanPersonName(line: string): string {
+  return cleanDisplay(line)
+    .replace(TITLE_ROLE, '')
+    .replace(/^(?:الباحث(?:ة)?|الطالب(?:ة)?|المؤلف(?:ة)?)\s*[:\-–]?\s*/u, '')
+    .replace(/^(?:و|&)\s+/, '')
+    .replace(/^[:\-–،.\s]+|[:\-–،.\s]+$/g, '')
+    .trim()
+}
+
+function looksLikePersonName(line: string): boolean {
+  if (/^(?:أ\.?\s*د\.?|أستاذ|الأستاذ|الدكتور|الدكتورة)\b/u.test(cleanDisplay(line))) {
+    return false
+  }
+  const cleaned = cleanPersonName(line)
+  const normalized = normalizeArabic(cleaned)
+  if (cleaned.length < 6 || cleaned.length > 80) return false
+  if (/\d|@|https?:|www\./i.test(cleaned)) return false
+  if (INSTITUTION_LINE.test(normalized)) return false
+  if (EXCLUDED_ROLE.test(normalized)) return false
+  if (RESEARCH_WORD.test(normalized)) return false
+  if (COUNTRY_LINE.test(normalized)) return false
+  if (/^(?:أ\.?\s*د\.?|أستاذ|الدكتور|الدكتورة)\b/u.test(cleaned)) return false
+  const tokens = cleaned.split(/\s+/).filter(Boolean)
+  if (tokens.length < 2 || tokens.length > 6) return false
+  return true
+}
 
 const BOILERPLATE =
   /(جامعه|كليه|قسم|معهد|وزاره|الجمهوريه|رساله|اطروحه|ماجستير|دكتوراه|دبلوم|بكالوريوس|جزء من متطلبات|نيل شهاده|بسم الله|الرحمن|الرحيم)/
@@ -37,24 +82,41 @@ function pageLines(text: string): string[] {
     .filter((line) => line.length > 0)
 }
 
-function extractAuthors(lines: string[]): { authors: string; sourceLine: string } {
-  for (let index = 0; index < lines.length; index += 1) {
+function extractAuthors(
+  lines: string[],
+  titleIndex: number,
+): { authors: string; sourceLine: string } {
+  const cleanInline = (value: string) =>
+    cleanDisplay(value)
+      .replace(/\s*(?:إشراف|اشراف|المشرف|لجنة المناقشة|تتألف لجنة)\s*[:：].*$/u, '')
+      .replace(/^[:\-–،.\s]+|[:\-–،.\s]+$/g, '')
+      .trim()
+
+  for (let index = 0; index < Math.min(lines.length, 15); index += 1) {
     const line = lines[index]
-    const match = line.match(AUTHOR_MARKER)
-    if (match) {
-      const inline = cleanDisplay(match[1] ?? '')
-        .replace(/\s*(?:إشراف|اشراف|المشرف|لجنة المناقشة)\s*[:：].*$/u, '')
-        .replace(/^[:\-–،.\s]+|[:\-–،.\s]+$/g, '')
-        .trim()
-      if (inline.length >= 3 && inline.length <= 100) {
-        return { authors: inline, sourceLine: line }
-      }
-      const next = lines[index + 1]
-      if (next && next.length >= 3 && next.length <= 100) {
-        return { authors: next, sourceLine: next }
-      }
+    const marker = line.match(AUTHOR_MARKER) ?? line.match(ROLE_MARKER)
+    if (!marker) continue
+    const inline = cleanInline(marker[1] ?? '')
+    if (inline.length >= 3 && inline.length <= 100 && !EXCLUDED_ROLE.test(inline)) {
+      return { authors: inline, sourceLine: line }
+    }
+    const next = lines[index + 1]
+    if (next && looksLikePersonName(next)) {
+      return { authors: cleanPersonName(next), sourceLine: next }
     }
   }
+
+  const start = titleIndex >= 0 ? titleIndex + 1 : 0
+  for (let index = start; index < Math.min(lines.length, start + 8); index += 1) {
+    const line = lines[index]
+    const normalized = normalizeArabic(line)
+    if (EXCLUDED_ROLE.test(normalized)) break
+    if (INSTITUTION_LINE.test(normalized) || COUNTRY_LINE.test(normalized)) break
+    if (looksLikePersonName(line)) {
+      return { authors: cleanPersonName(line), sourceLine: line }
+    }
+  }
+
   return { authors: '', sourceLine: '' }
 }
 
@@ -190,12 +252,13 @@ function extractCover(pages: Array<{ index: number; text: string }>, fileName: s
     .filter((line) => !/^(?:doi|issn|https?)/i.test(line))
     .sort((a, b) => b.length - a.length)
   const title = titleCandidates[0] ?? fallback
+  const titleIndex = title === fallback ? -1 : lines.findIndex((line) => line === title)
 
   const normalizedAll = normalizeArabic(lines.join(' '))
   const yearInfo = extractYearFromCover(lines)
   const universityLine = lines.find((line) => /(جامعه|كليه|معهد)/.test(normalizeArabic(line)))
   const degree = DEGREE.exec(normalizedAll)?.[1]
-  const authorInfo = extractAuthors(lines)
+  const authorInfo = extractAuthors(lines, titleIndex)
   const repaired = repairAuthors(authorInfo.authors)
 
   return {
