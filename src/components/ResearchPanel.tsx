@@ -36,6 +36,7 @@ export function ResearchPanel({ results, apiKey, onUsage }: ResearchPanelProps) 
   const [output, setOutput] = useState('')
   const [finishReason, setFinishReason] = useState('')
   const [contentWarnings, setContentWarnings] = useState<string[]>([])
+  const [guardrail, setGuardrail] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -45,8 +46,8 @@ export function ResearchPanel({ results, apiKey, onUsage }: ResearchPanelProps) 
   const hasMatches = results.some((result) => result.matches.length > 0)
   const canWrite = sources.length > 0 && request.trim().length >= 3
   const validation = useMemo(
-    () => (output ? validateResearchCitations(output, sources) : null),
-    [output, sources],
+    () => (!guardrail && output ? validateResearchCitations(output, sources) : null),
+    [output, sources, guardrail],
   )
   const wordCount = useMemo(
     () => (output.trim() ? output.trim().split(/\s+/).filter(Boolean).length : 0),
@@ -57,6 +58,7 @@ export function ResearchPanel({ results, apiKey, onUsage }: ResearchPanelProps) 
     setOutput('')
     setFinishReason('')
     setContentWarnings([])
+    setGuardrail(false)
     setError('')
     setCopied(false)
   }, [results])
@@ -82,9 +84,16 @@ export function ResearchPanel({ results, apiKey, onUsage }: ResearchPanelProps) 
     setOutput('')
     setFinishReason('')
     setContentWarnings([])
+    setGuardrail(false)
     setCopied(false)
     try {
       const answer = await askResearcher(apiKey, request, sources, onUsage)
+      if (answer.guardrail) {
+        setOutput(answer.text)
+        setFinishReason(answer.finishReason)
+        setGuardrail(true)
+        return
+      }
       const cleaned = cleanResearchOutput(answer.text, wantsPracticalResults(request))
       if (!cleaned.text.trim()) {
         setError('لم يُنتج النموذج نصًا علميًا صالحًا بعد التنظيف. أعد المحاولة بصفحات محتوى أخرى.')
@@ -225,6 +234,8 @@ export function ResearchPanel({ results, apiKey, onUsage }: ResearchPanelProps) 
                 <div className="research-output" dir="auto">
                   {output}
                 </div>
+                {!guardrail && (
+                  <>
                 <div className="research-stats">
                   <span>{wordCount} كلمة</span>
                   <span className={finishReason === 'length' ? 'is-warning' : ''}>
@@ -290,6 +301,8 @@ export function ResearchPanel({ results, apiKey, onUsage }: ResearchPanelProps) 
                 <p className="research-footnote">
                   راجع الاقتباسات وأرقام الصفحات قبل الاستخدام النهائي؛ الذكاء الاصطناعي قد يخطئ.
                 </p>
+                  </>
+                )}
               </div>
             )}
           </>
