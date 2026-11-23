@@ -16,6 +16,7 @@ import {
   cleanResearchOutput,
   collectResearchSources,
   validateResearchCitations,
+  wantsPracticalResults,
 } from '../lib/research'
 
 interface ResearchPanelProps {
@@ -84,7 +85,7 @@ export function ResearchPanel({ results, apiKey, onUsage }: ResearchPanelProps) 
     setCopied(false)
     try {
       const answer = await askResearcher(apiKey, request, sources, onUsage)
-      const cleaned = cleanResearchOutput(answer.text)
+      const cleaned = cleanResearchOutput(answer.text, wantsPracticalResults(request))
       if (!cleaned.text.trim()) {
         setError('لم يُنتج النموذج نصًا علميًا صالحًا بعد التنظيف. أعد المحاولة بصفحات محتوى أخرى.')
         return

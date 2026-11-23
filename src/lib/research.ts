@@ -6,13 +6,21 @@ import { cleanDisplay, isRejectedNameWord, normalizeArabic, normalizeDigits } fr
 
 export const RESEARCH_SYSTEM_PROMPT = `أنت باحث أكاديمي متخصص في الكتابة العلمية باللغة العربية. مصدر معلوماتك الوحيد هو ملفات PDF (رسائل وأطاريح جامعية) المرفقة في هذه المحادثة. مهمتك كتابة نصوص بحثية رصينة بأسلوبك الخاص مع توثيق دقيق.
 
+قاعدة الأولوية النظرية:
+- عند صياغة النصوص العلمية والمفاهيم والأبعاد والمقارنات النظرية، اعتمد بالدرجة الأولى على الإطار النظري، والمفاهيم، والتعريفات، والأبعاد، والأدبيات السابقة، والعلاقات النظرية بين المتغيرات.
+- لا تضمّن في الصياغة النظرية أرقام الجداول أو نتائج التحليل الإحصائي الخاصة بعينة البحث الميداني مثل: معاملات الثبات (ألفا كرونباخ)، المتوسطات الحسابية، الانحرافات المعيارية، نسب الاستجابة، ترتيب فقرات الاستبيان، أو نتائج اختبار الفرضيات الخاصة بعينة دراسة معينة، إلا إذا طلب المستخدم صراحةً في سؤاله "نتائج الدراسة الميدانية" أو "الجانب التطبيقي" أو "الإحصاء".
+- إذا وردت فكرة نظرية في سياق يذكر أرقام عينة أو استبيان، استخرج الفكرة/المفهوم النظري العام فقط دون نسب أرقام عينة باحث آخر وكأنها قاعدة عامة للطالب.
+- إذا لم يطلب المستخدم صراحةً النتائج الميدانية أو الجانب التطبيقي أو الإحصاء، فاعتبر النتائج الإحصائية خارج نطاق الإجابة.
+
 أولاً: استخراج اسم الباحث/المؤلف فقط
 - ابحث عن اسم صاحب البحث الأصلي (عادةً أسفل العنوان مباشرة وقبل الانتماء الجامعي أو البريد الإلكتروني، أو مسبوقاً بعبارات مثل: إعداد، الباحث، الباحثة، الطالب، الطالبة، إعداد الطالب/ة، تأليف).
 - لا تشترط وجود كلمة "إعداد" أو "الباحث"؛ أي اسم شخصي يظهر تحت عنوان البحث مباشرة وقبل جهة العمل أو البريد الإلكتروني يُعد اسم الباحث.
 - استبعد تماماً ولا تستخدم أسماء: المشرفين (بإشراف)، أعضاء ورئيس لجنة المناقشة (تتألف لجنة المناقشة من)، مقوّمي البحث، عميد الكلية، أو رئيس القسم.
 - لا تكتب (مصدر غير محدد) إلا إذا كان النص المرسل خالياً تماماً من اسم الباحث أو الجهة الناشرة.
 - استخدم "اللقب" (الاسم الأخير) في التوثيق. مثال: "حافظ عبد الكريم الغزالي" ← الغزالي.
-- إذا كان الباحثون اثنان: (لقب1 ولقب2، السنة: ص). ثلاثة فأكثر: (لقب الأول وآخرون، السنة: ص).
+- باحث واحد: (لقب الباحث، السنة: الصفحة) — مثل: (علي، 2026: 112).
+- باحثان اثنان: (لقب الأول ولقب الثاني، السنة: الصفحة) — مثل: إذا كان الباحث الأول "عبدالله فاضل علي" والثاني "خالد محمد جاسم"، يُكتب: (علي وجاسم، السنة: الصفحة).
+- ثلاثة باحثين فأكثر: (لقب الباحث الأول وآخرون، السنة: الصفحة) — مثل: "عبدالله فاضل علي، خالد جاسم محمد، رقية عبدالله محمد" ← (علي وآخرون، السنة: الصفحة).
 
 ثانياً: استخراج السنة ورقم الصفحة
 - التقط سنة النشر من ترويسة البحث أو المجلة أو صفحة العنوان (مثل: 2026).
@@ -296,7 +304,20 @@ const WARNING_START = /^(?:تنبيه|ملاحظة|ملحوظة)(?:\s|:|：|$)/
 const META_START =
   /^(?:لم أجد|لم يُعرَّف|لم يعرف|لم يُعرف|الصفحة المرفقة|الصفحات المرفقة|لا تتضمن|لم تتضمن|قائمة المصادر|قائمة المراجع|المصادر والمراجع|تشير الصفحة|يظهر من سياق العرض)/
 
-export function cleanResearchOutput(raw: string): CleanResearchResult {
+const PRACTICAL_SENTENCE =
+  /((?:ألفا|الفا)\s*كرونباخ|كرونباخ|معامل\s*الثبات|المتوسط\s*الحسابي|المتوسطات\s*الحسابيه|الانحراف\s*المعيار|الانحرافات\s*المعياريه|نسب\s*الاستجابه|نسبه\s*الاستجابه|ترتيب\s*الفقرات|الاستبيان|الاستبانه|اختبار\s*الفرضيات|الفرضيه|الفرضيات|معامل\s*الارتباط|بيرسون|سبيرمان|ANOVA|T[- ]?test|Sig\.?|p[- ]?value|table\s*\d|الجدول\s*\(?\d|جدول\s*\(?\d|نتايج\s*التحليل\s*الاحصائي|عينه\s*الدراسه)/i
+
+export function wantsPracticalResults(request: string): boolean {
+  const normalized = normalizeArabic(request)
+  return /(نتايج\s+الدراسه\s+الميدانيه|الجانب\s+التطبيقي|الجانب\s+الميداني|الاحصاء|التحليل\s+الاحصائي|نتايج\s+العينه|عينه\s+الدراسه)/.test(
+    normalized,
+  )
+}
+
+export function cleanResearchOutput(
+  raw: string,
+  allowPractical = false,
+): CleanResearchResult {
   let text = raw
     .replace(/```[\s\S]*?```/g, (block) => block.replace(/```/g, ''))
     .replace(/\*\*/g, '')
@@ -316,7 +337,10 @@ export function cleanResearchOutput(raw: string): CleanResearchResult {
     .split(/\n{2,}/)
     .map((paragraph) => {
       const lines = paragraph.split(/\n/).map((line) => line.trimEnd())
-      if (lines.length > 0 && (WARNING_START.test(lines[0].trim()) || META_START.test(lines[0].trim()))) {
+      if (
+        lines.length > 0 &&
+        (WARNING_START.test(lines[0].trim()) || META_START.test(lines[0].trim()))
+      ) {
         return ''
       }
       return lines
@@ -326,7 +350,24 @@ export function cleanResearchOutput(raw: string): CleanResearchResult {
     })
     .filter(Boolean)
 
-  text = paragraphs.join('\n\n').trim()
+  let removedPractical = 0
+  const filteredParagraphs = allowPractical
+    ? paragraphs
+    : paragraphs
+        .map((paragraph) => {
+          const sentences = paragraph.split(/(?<=[.!؟])\s+/)
+          const kept = sentences.filter((sentence) => {
+            if (PRACTICAL_SENTENCE.test(normalizeArabic(sentence))) {
+              removedPractical += 1
+              return false
+            }
+            return true
+          })
+          return kept.join(' ').trim()
+        })
+        .filter(Boolean)
+
+  text = filteredParagraphs.join('\n\n').trim()
 
   const normalized = normalizeArabic(text)
   const checks: Array<[string, string]> = [
@@ -340,6 +381,11 @@ export function cleanResearchOutput(raw: string): CleanResearchResult {
   const warnings = checks
     .filter(([phrase]) => normalized.includes(normalizeArabic(phrase)))
     .map(([, message]) => message)
+  if (removedPractical > 0) {
+    warnings.unshift(
+      `حُذفت ${removedPractical} جملة تحتوي أرقامًا أو نتائج ميدانية/إحصائية لأن طلبك نظري.`,
+    )
+  }
 
   return { text, warnings }
 }
@@ -530,7 +576,12 @@ export async function askResearcher(
 
   const context = buildResearchContext(sources)
   const images = await renderResearchImages(sources)
-  const system = `${RESEARCH_SYSTEM_PROMPT}\n\nالمصادر المتاحة (لا تخرج عنها):\n${context}\n\n${
+  const practical = wantsPracticalResults(request)
+  const system = `${RESEARCH_SYSTEM_PROMPT}\n\n${
+    practical
+      ? 'طلب المستخدم صراحةً نتائج ميدانية/إحصائية؛ يجوز ذكرها ضمن الحدود المطلوبة.'
+      : 'المستخدم لم يطلب نتائج ميدانية أو إحصائية؛ التزم بالإطار النظري والمفاهيم فقط، ولا تذكر أرقام العينة أو الجداول أو ألفا كرونباخ أو المتوسطات أو الفرضيات.'
+  }\n\nالمصادر المتاحة (لا تخرج عنها):\n${context}\n\n${
     images.length > 0
       ? 'أُرفقت أيضًا صور للصفحات المستخرجة. استخدم الصور للتحقق البصري من النص وأرقام الصفحات المطبوعة، واعتمد على النص والصور معًا.'
       : ''
