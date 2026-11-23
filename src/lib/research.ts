@@ -1,5 +1,7 @@
+import type { PDFPageProxy } from 'pdfjs-dist'
 import type { CoverInfo, ResearchCitation, SourceResult } from './types'
 import type { UsageEvent } from './deepseek'
+import { loadPdf } from './pdf'
 import { cleanDisplay, normalizeDigits } from './text'
 
 export const RESEARCH_SYSTEM_PROMPT = `أنت باحث أكاديمي متخصص في الكتابة العلمية باللغة العربية. مصدر معلوماتك الوحيد هو ملفات PDF (رسائل وأطاريح جامعية) المرفقة في هذه المحادثة. مهمتك كتابة نصوص بحثية رصينة بأسلوبك الخاص مع توثيق دقيق.
@@ -248,6 +250,95 @@ export interface ResearchSource {
   fileName: string
   citation: ResearchCitation
   pages: ResearchPageSource[]
+  pdfBlob?: Blob
+}
+
+export interface ResearchImage {
+  sourceName: string
+  citationLabel: string
+  printedPage: string
+  dataUrl: string
+}
+
+const MAX_IMAGES = 32
+const MAX_IMAGE_DATA_CHARS = 24 * 1024 * 1024
+
+async function pageToJpegDataUrl(page: PDFPageProxy): Promise<string | undefined> {
+  try {
+    const viewport = page.getViewport({ scale: 1.6 })
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.ceil(viewport.width)
+    canvas.height = Math.ceil(viewport.height)
+    const context = canvas.getContext('2d')
+    if (!context) return undefined
+    context.fillStyle = '#ffffff'
+    context.fillRect(0, 0, canvas.width, canvas.height)
+    await page.render({
+      canvasContext: context,
+      viewport,
+      canvas,
+    } as Parameters<typeof page.render>[0]).promise
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.84)
+    canvas.width = 0
+    canvas.height = 0
+    return dataUrl
+  } catch {
+    return undefined
+  }
+}
+
+async function renderResearchImages(sources: ResearchSource[]): Promise<ResearchImage[]> {
+  const withPdf = sources.filter((source) => source.pdfBlob && source.pages.length > 0)
+  if (withPdf.length === 0) return []
+
+  const perSource = Math.max(1, Math.floor(MAX_IMAGES / withPdf.length))
+  const images: ResearchImage[] = []
+  let totalChars = 0
+
+  for (const source of withPdf) {
+    if (!source.pdfBlob) continue
+    const bytes = new Uint8Array(await source.pdfBlob.arrayBuffer())
+    let doc
+    try {
+      doc = (await loadPdf(bytes)).doc
+      const limit = Math.min(perSource, source.pages.length, doc.numPages)
+      for (let index = 0; index < limit; index += 1) {
+        if (images.length >= MAX_IMAGES || totalChars >= MAX_IMAGE_DATA_CHARS) break
+        const page = await doc.getPage(index + 1)
+        const dataUrl = await pageToJpegDataUrl(page)
+        page.cleanup()
+        if (!dataUrl) continue
+        if (totalChars + dataUrl.length > MAX_IMAGE_DATA_CHARS) break
+        totalChars += dataUrl.length
+        const pageMeta = source.pages[index]
+        images.push({
+          sourceName: source.fileName,
+          citationLabel: source.citation.label,
+          printedPage: pageMeta?.printedPage || '[رقم الصفحة غير واضح]',
+          dataUrl,
+        })
+      }
+    } catch {
+      // If images cannot be rendered, the text context is still sent.
+    } finally {
+      await doc?.destroy().catch(() => undefined)
+    }
+  }
+
+  return images
+}
+
+function imageContentBlocks(images: ResearchImage[]) {
+  return images.flatMap((image) => [
+    {
+      type: 'text' as const,
+      text: `[صورة من المصدر: ${image.sourceName} | التوثيق: ${image.citationLabel} | الصفحة المطبوعة: ${image.printedPage}]`,
+    },
+    {
+      type: 'image_url' as const,
+      image_url: { url: image.dataUrl, detail: 'high' as const },
+    },
+  ])
 }
 
 export function buildResearchContext(sources: ResearchSource[]): string {
@@ -303,6 +394,7 @@ export function collectResearchSources(results: SourceResult[]): ResearchSource[
         text: page.text,
         pdfPage: page.pdfPage,
       })),
+      pdfBlob: result.outputBlob,
     }))
 }
 
@@ -317,7 +409,27 @@ export async function askResearcher(
   if (request.trim().length < 3) throw new Error('اكتب طلبك البحثي أولًا.')
 
   const context = buildResearchContext(sources)
-  const system = `${RESEARCH_SYSTEM_PROMPT}\n\nالمصادر المتاحة (لا تخرج عنها):\n${context}`
+  const images = await renderResearchImages(sources)
+  const system = `${RESEARCH_SYSTEM_PROMPT}\n\nالمصادر المتاحة (لا تخرج عنها):\n${context}\n\n${
+    images.length > 0
+      ? 'أُرفقت أيضًا صور للصفحات المستخرجة. استخدم الصور للتحقق البصري من النص وأرقام الصفحات المطبوعة، واعتمد على النص والصور معًا.'
+      : ''
+  }`
+  const userContent: Array<
+    | { type: 'text'; text: string }
+    | { type: 'image_url'; image_url: { url: string; detail: 'high' } }
+  > = [
+    {
+      type: 'text',
+      text: `${request.trim()}\n\n${
+        images.length > 0
+          ? `أرفقت ${images.length} صورة من الصفحات المستخرجة.`
+          : 'لم تتوفر صور للصفحات؛ اعتمد على النص المرفق.'
+      }`,
+    },
+    ...imageContentBlocks(images),
+  ]
+
   onUsage?.({ type: 'attempt' })
 
   let response: Response
@@ -332,7 +444,7 @@ export async function askResearcher(
         model: 'deepseek-flash',
         messages: [
           { role: 'system', content: system },
-          { role: 'user', content: request.trim() },
+          { role: 'user', content: userContent },
         ],
         temperature: 0.35,
         max_tokens: 4000,

@@ -104,8 +104,8 @@ export function ResearchPanel({ results, apiKey, onUsage }: ResearchPanelProps) 
             <span className="section-kicker">الخطوة الثانية</span>
             <h2>الباحث العلمي</h2>
             <p>
-              اطلب كتابة نص بحثي اعتمادًا على الصفحات المستخرجة فقط، مع توثيق أسماء الباحثين
-              والسنوات وأرقام الصفحات المطبوعة.
+              اطلب كتابة نص بحثي اعتمادًا على الصفحات المستخرجة نصًا وصورةً، مع توثيق أسماء
+              الباحثين والسنوات وأرقام الصفحات المطبوعة.
             </p>
           </div>
           <div className="research-sources">
@@ -169,7 +169,7 @@ export function ResearchPanel({ results, apiKey, onUsage }: ResearchPanelProps) 
             <div className="research-actions">
               <p>
                 <Sparkles size={14} />
-                سيلتزم الباحث بقواعد التوثيق، ولن يخترع مصادر أو أرقام صفحات.
+                سيُرسل نص الصفحات المستخرجة وصورها إلى النموذج للتحقق البصري، مع قواعد التوثيق.
               </p>
               <button
                 type="button"
@@ -178,7 +178,7 @@ export function ResearchPanel({ results, apiKey, onUsage }: ResearchPanelProps) 
                 disabled={!canWrite || loading}
               >
                 {loading ? <Loader2 size={18} className="spin" /> : <PenLine size={18} />}
-                {loading ? 'جارٍ الكتابة والتحقق…' : 'اكتب النص العلمي'}
+                {loading ? 'جارٍ تجهيز الصور والكتابة…' : 'اكتب النص العلمي'}
               </button>
             </div>
 
