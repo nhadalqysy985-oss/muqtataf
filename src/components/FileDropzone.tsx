@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react'
-import { FileText, FileUp, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ChevronDown, FileText, FileUp, X } from 'lucide-react'
 import type { SourceFile } from '../lib/types'
 
 interface FileDropzoneProps {
@@ -25,7 +25,15 @@ export function FileDropzone({
   onRemove,
 }: FileDropzoneProps) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const previousCount = useRef(files.length)
   const [dragging, setDragging] = useState(false)
+  const [listOpen, setListOpen] = useState(files.length <= 2)
+
+  useEffect(() => {
+    if (files.length >= 3 && previousCount.current < 3) setListOpen(false)
+    if (files.length > 0 && files.length < 3 && previousCount.current >= 3) setListOpen(true)
+    previousCount.current = files.length
+  }, [files.length])
 
   const openPicker = () => {
     if (!disabled) inputRef.current?.click()
@@ -86,10 +94,23 @@ export function FileDropzone({
       </div>
 
       <div className="file-list-head">
-        <span>الملفات المرفقة</span>
-        <span className={`file-count ${files.length >= maxFiles ? 'is-full' : ''}`} dir="ltr">
-          {files.length} / {maxFiles}
-        </span>
+        <button
+          type="button"
+          className="file-list-toggle"
+          onClick={() => setListOpen((open) => !open)}
+          aria-expanded={listOpen}
+        >
+          <span>الملفات المرفقة</span>
+          <span className={`file-count ${files.length >= maxFiles ? 'is-full' : ''}`} dir="ltr">
+            {files.length} / {maxFiles}
+          </span>
+          {files.length > 0 && (
+            <span className="file-list-toggle-label">
+              {listOpen ? 'إخفاء' : 'عرض'}
+              <ChevronDown size={13} className={listOpen ? 'is-open' : ''} />
+            </span>
+          )}
+        </button>
       </div>
 
       {files.length === 0 ? (
@@ -97,7 +118,7 @@ export function FileDropzone({
           <FileText size={17} strokeWidth={1.7} />
           <span>لم تُضف أي مصدر بعد. ابدأ بملف واحد على الأقل.</span>
         </div>
-      ) : (
+      ) : listOpen ? (
         <ul className="file-list">
           {files.map((entry, index) => (
             <li key={entry.id} className="file-row">
@@ -125,6 +146,13 @@ export function FileDropzone({
             </li>
           ))}
         </ul>
+      ) : (
+        <div className="file-list-collapsed">
+          <span>{files.length} ملفات مرفقة</span>
+          <button type="button" onClick={() => setListOpen(true)}>
+            عرض الملفات
+          </button>
+        </div>
       )}
     </div>
   )

@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
   Download,
   Eye,
   FileQuestion,
@@ -104,8 +105,11 @@ export function ResultCard({ result, index, onUpdateMeta, onRemove }: ResultCard
               {result.cover.university && <span dir="auto">{result.cover.university}</span>}
             </div>
           )}
-          <div className="cover-audit">
-            <span className="cover-audit-title">بيانات الغلاف المستخرجة</span>
+          <details className="cover-audit">
+            <summary className="cover-audit-title">
+              بيانات الغلاف المستخرجة
+              <ChevronDown size={12} className="cover-audit-chevron" />
+            </summary>
             <dl>
               <div className={authorMissing ? 'meta-missing-row' : ''}>
                 <dt>أسماء الباحثين</dt>
@@ -140,7 +144,7 @@ export function ResultCard({ result, index, onUpdateMeta, onRemove }: ResultCard
                 ))}
               </div>
             )}
-          </div>
+          </details>
 
           {metaWarning && (
             <div className="result-meta-warning">
