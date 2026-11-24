@@ -28,6 +28,7 @@ import { ResultCard } from './components/ResultCard'
 import { ResearchPanel } from './components/ResearchPanel'
 import { buildZip, downloadBlob, extractSource } from './lib/extract'
 import { buildCitation } from './lib/research'
+import { saveCoverCache } from './lib/coverCache'
 import { extractsPhrase, pagesPhrase } from './lib/format'
 import { parseTopics } from './lib/text'
 import type { UsageEvent } from './lib/deepseek'
@@ -279,6 +280,7 @@ function App() {
           year: normalizedYear,
           yearLine: normalizedYear ? 'إدخال يدوي' : 'غير واضح',
         }
+        saveCoverCache(result.fileFingerprint, cover)
         return { ...result, cover, citation: buildCitation(cover) }
       }),
     )

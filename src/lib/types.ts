@@ -64,6 +64,7 @@ export interface SourceResult {
   id: string
   fileName: string
   fileSize: number
+  fileFingerprint: string
   pageCount: number
   cover: CoverInfo
   matches: PageMatch[]

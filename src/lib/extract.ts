@@ -5,6 +5,7 @@ import { ocrWithDeepSeek } from './deepseek'
 import type { UsageEvent } from './deepseek'
 import { makeSnippet, normalizeArabic, scorePage } from './text'
 import { cleanDisplay, isRejectedNameWord, normalizeDigits } from './text'
+import { coverFingerprint, loadCoverCache, saveCoverCache } from './coverCache'
 import {
   buildCitation,
   detectCountry,
@@ -296,6 +297,170 @@ function repairAuthors(rawAuthors: string): { authors: string; names: string[]; 
   return { authors: names.join(' و '), names, warnings }
 }
 
+const COVER_VISION_PROMPT = `أنت تقرأ صورة عالية الوضوح لصفحة غلاف بحث علمي. استخرج فقط:
+1. أسماء الباحثين/المؤلفين الظاهرين أسفل عنوان البحث، أو بعد عبارات: إعداد، الباحث، الباحثة، الطالب، الطالبة، تأليف.
+2. سنة النشر المطبوعة (4 أرقام).
+
+قواعد صارمة:
+- استبعد المشرف (بإشراف)، لجنة المناقشة، المقوّمين، عميد الكلية، رئيس القسم.
+- لا تعتبر الجامعة أو الكلية أو القسم أو المجلة أو الشركة أو المؤسسة اسم باحث.
+- لا تعتبر ISSN أو DOI أو رقم صفحة أو رقم مجلد/عدد سنة نشر.
+- إذا لم يتضح اسم الباحث أو السنة، أعد مصفوفة فارغة أو سنة فارغة، ولا تخمّن.
+- أعد JSON فقط بهذه البنية:
+{"authors":["الاسم الكامل"],"year":"2026","confidence":"high|medium|low"}
+- لا تكتب أي شرح خارج JSON.`
+
+interface VisionCoverInfo {
+  authors: string[]
+  year: string
+}
+
+async function renderCoverImage(bytes: Uint8Array): Promise<string | undefined> {
+  let doc
+  try {
+    doc = (await loadPdf(bytes)).doc
+    const page = await doc.getPage(1)
+    const base = page.getViewport({ scale: 1 })
+    const scale = Math.max(2.2, Math.min(3.2, 2400 / base.width))
+    const viewport = page.getViewport({ scale })
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.ceil(viewport.width)
+    canvas.height = Math.ceil(viewport.height)
+    const context = canvas.getContext('2d')
+    if (!context) return undefined
+    context.fillStyle = '#ffffff'
+    context.fillRect(0, 0, canvas.width, canvas.height)
+    await page.render({
+      canvasContext: context,
+      viewport,
+      canvas,
+    } as Parameters<typeof page.render>[0]).promise
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.92)
+    page.cleanup()
+    canvas.width = 0
+    canvas.height = 0
+    return dataUrl
+  } catch {
+    return undefined
+  } finally {
+    await doc?.destroy().catch(() => undefined)
+  }
+}
+
+async function readCoverFromImage(
+  imageDataUrl: string,
+  apiKey: string,
+  onUsage?: (event: UsageEvent) => void,
+): Promise<VisionCoverInfo | null> {
+  onUsage?.({ type: 'attempt' })
+  let response: Response
+  try {
+    response = await fetch('https://api.deepseek.com/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey.trim()}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'deepseek-flash',
+        messages: [
+          { role: 'system', content: COVER_VISION_PROMPT },
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: 'اقرأ غلاف البحث المرفق واستخرج أسماء الباحثين وسنة النشر فقط بصيغة JSON.',
+              },
+              {
+                type: 'image_url',
+                image_url: { url: imageDataUrl, detail: 'high' },
+              },
+            ],
+          },
+        ],
+        temperature: 0,
+        max_tokens: 600,
+      }),
+    })
+  } catch {
+    onUsage?.({ type: 'failure' })
+    return null
+  }
+
+  const raw = await response.text()
+  let data: {
+    choices?: Array<{ message?: { content?: string } }>
+    usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
+  }
+  try {
+    data = JSON.parse(raw)
+  } catch {
+    onUsage?.({ type: 'failure' })
+    return null
+  }
+  if (!response.ok || !data.choices?.[0]?.message?.content) {
+    onUsage?.({ type: 'failure' })
+    return null
+  }
+
+  const content = data.choices[0].message.content
+  const usage = {
+    inputTokens: Number(data.usage?.prompt_tokens) || 0,
+    outputTokens: Number(data.usage?.completion_tokens) || 0,
+    totalTokens: Number(data.usage?.total_tokens) || 0,
+  }
+  onUsage?.({ type: 'success', usage, pages: 0 })
+
+  try {
+    const cleaned = content
+      .replace(/```(?:json)?/gi, '')
+      .replace(/```/g, '')
+      .trim()
+    const start = cleaned.indexOf('{')
+    const end = cleaned.lastIndexOf('}')
+    if (start < 0 || end <= start) return null
+    const parsed = JSON.parse(cleaned.slice(start, end + 1)) as {
+      authors?: unknown
+      year?: unknown
+    }
+    const rawAuthors = Array.isArray(parsed.authors)
+      ? parsed.authors
+      : typeof parsed.authors === 'string'
+        ? [parsed.authors]
+        : []
+    const authors = rawAuthors
+      .filter((author): author is string => typeof author === 'string')
+      .map((author) => cleanDisplay(author))
+      .filter((author) => author.length >= 3 && !isInvalidAuthorName(author))
+    const yearMatch = normalizeDigits(String(parsed.year ?? '')).match(
+      /(?<!\d)((?:19|20)\d{2})(?!\d)/,
+    )
+    return { authors, year: yearMatch?.[1] ?? '' }
+  } catch {
+    return null
+  }
+}
+
+function mergeVisionCover(base: CoverInfo, vision: VisionCoverInfo | null): CoverInfo {
+  if (!vision) return base
+  const visionAuthors = repairAuthors(vision.authors.join(' و '))
+  const useVisionAuthors = visionAuthors.names.length > 0
+  const authors = useVisionAuthors ? visionAuthors.authors : base.authors
+  const authorNames = useVisionAuthors ? visionAuthors.names : base.authorNames ?? []
+  const fields = {
+    ...base,
+    authors,
+    authorNames,
+    authorLine: useVisionAuthors ? 'صورة الغلاف (قراءة بصرية)' : base.authorLine,
+    surnameLine: useVisionAuthors ? 'صورة الغلاف (قراءة بصرية)' : base.surnameLine,
+    nameWarnings: useVisionAuthors ? visionAuthors.warnings : base.nameWarnings,
+    year: vision.year ? `${vision.year}م` : base.year,
+    yearLine: vision.year ? 'صورة الغلاف (قراءة بصرية)' : base.yearLine,
+  }
+  return fields
+}
+
 function extractYearFromCover(lines: string[]): { year: string; line: string } {
   let academic: { year: number; line: string } | null = null
   let best: { year: number; line: string; score: number } | null = null
@@ -400,6 +565,8 @@ export async function extractSource(
   onUsage?: (event: UsageEvent) => void,
 ): Promise<SourceResult> {
   const bytes = new Uint8Array(await source.file.arrayBuffer())
+  const fingerprint = coverFingerprint(source.file)
+  const cachedCover = loadCoverCache(fingerprint)
   onProgress({ stage: 'reading', value: 0.03 })
 
   const ocr = await ocrWithDeepSeek(source.file, apiKey, onProgress, onUsage)
@@ -407,7 +574,18 @@ export async function extractSource(
   if (pages.length === 0) throw new Error('لم يعُد DeepSeek بأي صفحات نصية لهذا الملف.')
 
   onProgress({ stage: 'cover', value: 0.76 })
-  const cover = extractCover(pages, source.name)
+  const textCover = extractCover(pages, source.name)
+  let cover = cachedCover ?? textCover
+  if (!cachedCover) {
+    const coverImage = await renderCoverImage(bytes)
+    if (coverImage) {
+      const visionCover = await readCoverFromImage(coverImage, apiKey, onUsage)
+      if (visionCover) {
+        cover = mergeVisionCover(textCover, visionCover)
+        saveCoverCache(fingerprint, cover)
+      }
+    }
+  }
 
   let thumbnailUrl: string | undefined
   try {
@@ -498,6 +676,7 @@ export async function extractSource(
     id: source.id,
     fileName: source.name,
     fileSize: source.size,
+    fileFingerprint: fingerprint,
     pageCount: pages.length,
     cover,
     matches,
