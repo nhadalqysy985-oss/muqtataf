@@ -35,10 +35,61 @@ const EXCLUDED_ROLE =
   /^(?:إشراف|اشراف|بإشراف|بِإشراف|المشرف|لجنة|لجنه|تتألف|رئيس|عميد|مقوم|مقيم|مناقش|البريد|الملخص|المستخلص|abstract|كلمات|keywords)/i
 
 const INSTITUTION_LINE =
-  /(جامعه|كليه|قسم|معهد|مركز|هيئه|وزاره|مجله|journal|university|college|department|faculty|@|بريد|email|https?|www|doi|issn)/i
+  /(جامعه|كليه|قسم|معهد|مركز|هيئه|وزاره|مجله|شركه|مؤسسه|منظمه|الكترونيه|ملخص|كلمات|مفتاحيه|journal|university|college|department|faculty|@|بريد|email|https?|www|doi|issn)/i
 
 const RESEARCH_WORD =
-  /(دراسه|دراسة|بحث|مقارنه|مقارنة|تحليل|تطبيق|رساله|رسالة|اطروحه|أطروحة|منهج|منهجيه|منهجية|ميدانيه|ميدانية|تجريبيه|تجريبية|نظريه|نظرية)/i
+  /(دراسه|دراسة|بحث|مقارنه|مقارنة|تحليل|تطبيق|رساله|رسالة|اطروحه|أطروحة|منهج|منهجيه|منهجية|ميدانيه|ميدانية|تجريبيه|تجريبية|نظريه|نظرية|ملخص|كلمات|مفتاحيه|مجلد|عدد)/i
+
+const TITLE_WORDS = new Set(
+  [
+    'في',
+    'على',
+    'من',
+    'إلى',
+    'الى',
+    'حول',
+    'عن',
+    'خلال',
+    'بين',
+    'دراسة',
+    'دراسه',
+    'بحث',
+    'تحليل',
+    'دور',
+    'أثر',
+    'اثر',
+    'واقع',
+    'تطبيق',
+    'مقارنة',
+    'مقارنه',
+    'مدخل',
+    'إطار',
+    'اطار',
+    'علاقة',
+    'علاقه',
+    'تأثير',
+    'تاثير',
+    'أبعاد',
+    'ابعاد',
+    'مفاهيم',
+    'نظريات',
+    'القيادة',
+    'القياده',
+    'الإبداع',
+    'الابداع',
+    'الأداء',
+    'الاداء',
+    'الرضا',
+    'الالتزام',
+    'التنظيمي',
+    'المؤسسي',
+    'الوظيفي',
+    'العام',
+    'الخاص',
+    'الجامعات',
+    'القطاع',
+  ].map(normalizeArabic),
+)
 
 const COUNTRY_LINE =
   /^(?:العراق|الجزائر|اليمن|مصر|السعودية|المملكة العربية السعودية|الأردن|سوريا|لبنان|تونس|المغرب|ليبيا|السودان|فلسطين|الكويت|الإمارات|قطر|البحرين|عمان)$/u
@@ -74,6 +125,7 @@ function looksLikePersonName(line: string): boolean {
   if (isInvalidAuthorName(cleaned)) return false
   const tokens = cleaned.split(/\s+/).filter(Boolean)
   if (tokens.length < 2 || tokens.length > 6) return false
+  if (TITLE_WORDS.has(normalizeArabic(tokens[0]))) return false
   return true
 }
 
@@ -85,11 +137,15 @@ const DEGREE = /(ماجستير|دكتوراه|دبلوم|بكالوريوس)/
 function stripCoverMarkup(line: string): string {
   return line
     .replace(/<[^>]*>/g, ' ')
-    .replace(/\*\*|__/g, '')
-    .replace(/[*_`#>]/g, ' ')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
-    .replace(/\s+/g, ' ')
+    .replace(/&#\d+;/g, ' ')
+    .replace(/\*\*|__/g, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/[*_`#>|¦]/g, ' ')
+    .replace(/[\uFFFD\u25A1\u25A0\u25AA\u25CF\u25C6\u25C7\u2022\u00B7\u25E6]/g, ' ')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/^[.,;:،؛\-–—_=+*#/\\]+|[.,;:،؛\-–—_=+*#/\\]+$/g, '')
     .trim()
 }
 
@@ -242,22 +298,47 @@ function repairAuthors(rawAuthors: string): { authors: string; names: string[]; 
 
 function extractYearFromCover(lines: string[]): { year: string; line: string } {
   let academic: { year: number; line: string } | null = null
-  let single: { year: number; line: string } | null = null
+  let best: { year: number; line: string; score: number } | null = null
 
   for (const line of lines) {
     const normalized = normalizeDigits(line)
-    const range = normalized.match(/(20\d{2})\s*[/\-]\s*(20\d{2})/)
-    if (range) {
+    if (/(?:doi|issn|https?:\/\/|www\.|@)/i.test(normalized)) continue
+
+    const cue =
+      /(?:سنة|سنه|عام|تاريخ|نشر|جامعية|جامعيه|copyright|©|مجلة|مجله|جامعة|جامعه)/i.test(
+        normalized,
+      )
+    const pageLine = /(?:صفح|صفحه|page|pp\.?)/i.test(normalized)
+    const range = normalized.match(/((?:19|20)\d{2})\s*[/\-]\s*((?:19|20)\d{2})/)
+    if (range && !(pageLine && !cue)) {
       const year = Math.max(Number(range[1]), Number(range[2]))
       if (!academic || year > academic.year) academic = { year, line }
       continue
     }
-    const match = normalized.match(/(?<!\d)(19|20)\d{2}(?!\d)/)
-    if (match && !single) single = { year: Number(match[0]), line }
+
+    const years = [
+      ...normalized.matchAll(/(?<![\d.])((?:19|20)\d{2})(?![\d.])/g),
+    ]
+    for (const match of years) {
+      const index = match.index ?? 0
+      const before = normalized.slice(0, index)
+      if (/(?:ص|صفحه|صفحة|page|pp|عدد|مجلد|volume|vol|issue|رقم)\s*[:.]?\s*$/i.test(before)) {
+        continue
+      }
+      const year = Number(match[1])
+      const score = cue ? 2 : 1
+      if (
+        !best ||
+        score > best.score ||
+        (score === best.score && year > best.year)
+      ) {
+        best = { year, line, score }
+      }
+    }
   }
 
   if (academic) return { year: `${academic.year}م`, line: academic.line }
-  if (single) return { year: `${single.year}م`, line: single.line }
+  if (best) return { year: `${best.year}م`, line: best.line }
   return { year: '', line: '' }
 }
 
@@ -272,6 +353,7 @@ function extractCover(pages: Array<{ index: number; text: string }>, fileName: s
     .slice(0, limit)
     .filter((line) => line.length >= 8 && line.length <= 180)
     .filter((line) => !BOILERPLATE.test(normalizeArabic(line)))
+    .filter((line) => !/(?:issn|doi|https?:\/\/|www\.|المجلد|العدد|صفحة|صفحه|page|volume|issue)/i.test(line))
     .filter((line) => !/^(?:doi|issn|https?)/i.test(line))
     .sort((a, b) => b.length - a.length)
   const title = titleCandidates[0] ?? fallback
