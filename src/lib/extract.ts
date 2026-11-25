@@ -647,6 +647,9 @@ export async function extractSource(
   const matchedTopics = [...new Set(matches.flatMap((match) => match.topics))]
   const citation = buildCitation(cover)
   const pageTextByNumber = new Map(pages.map((page) => [page.index + 1, page.text]))
+  const matchScoreByPage = new Map(
+    matches.map((match) => [match.pageNumber, match.score]),
+  )
   const researchPageNumbers = [1, ...matches.map((match) => match.pageNumber)].filter(
     (pageNumber, index, all) => all.indexOf(pageNumber) === index,
   )
@@ -658,6 +661,7 @@ export async function extractSource(
         pdfPage: pageNumber,
         outputPage: index + 1,
         printedPage: detectPrintedPageNumber(text) ?? '',
+        score: matchScoreByPage.get(pageNumber) ?? 0,
         text,
       }
     })

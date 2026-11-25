@@ -45,6 +45,7 @@ export interface ResearchPage {
   pdfPage: number
   outputPage: number
   printedPage: string
+  score: number
   text: string
 }
 

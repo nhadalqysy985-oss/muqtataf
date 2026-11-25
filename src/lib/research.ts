@@ -17,6 +17,13 @@ export const RESEARCH_SYSTEM_PROMPT = `أنت مساعد كتابة علمية �
 - إذا وردت فكرة نظرية في سياق يذكر أرقام عينة أو استبيان، استخرج الفكرة/المفهوم النظري العام فقط دون نسب أرقام عينة باحث آخر وكأنها قاعدة عامة للطالب.
 - إذا لم يطلب المستخدم صراحةً النتائج الميدانية أو الجانب التطبيقي أو الإحصاء، فاعتبر النتائج الإحصائية خارج نطاق الإجابة.
 
+قاعدة تنوع المصادر ومنع الاختلاق:
+- عند وجود أكثر من مصدر مرفق ذي صلة، وزّع الفقرات والتوثيق بين أكثر من باحث/مصدر، ولا تجعل الفقرات المتتالية كلها من مصدر واحد إذا توفرت مقاطع أخرى.
+- يمكنك عقد مقارنة بين تعريفات أو أبعاد وردت عند أكثر من باحث، مع توثيق كل طرف.
+- لا تختلق أو تخمّن اسم باحث أو لقبًا أو سنة نشر أو رقم صفحة أو مرجعًا غير موجود صراحةً في المقاطع المرفقة.
+- إذا لم يتوفر لمصدر ما محتوى يدعم الفكرة، فلا تُقحمه ولا تصغ له نصًا؛ استخدم فقط المصادر التي تحتوي الفكرة فعلًا.
+- أدرج في قائمة المراجع النهائية فقط المصادر التي اعتمدت عليها فعليًا في المتن.
+
 أولاً: استخراج اسم الباحث/المؤلف فقط
 - ابحث عن اسم صاحب البحث الأصلي (عادةً أسفل العنوان مباشرة وقبل الانتماء الجامعي أو البريد الإلكتروني، أو مسبوقاً بعبارات مثل: إعداد، الباحث، الباحثة، الطالب، الطالبة، إعداد الطالب/ة، تأليف).
 - لا تشترط وجود كلمة "إعداد" أو "الباحث"؛ أي اسم شخصي يظهر تحت عنوان البحث مباشرة وقبل جهة العمل أو البريد الإلكتروني يُعد اسم الباحث.
@@ -424,6 +431,7 @@ export interface ResearchPageSource {
   text: string
   pdfPage?: number
   outputPage?: number
+  score?: number
 }
 
 export interface ResearchSource {
@@ -481,10 +489,13 @@ async function renderResearchImages(sources: ResearchSource[]): Promise<Research
     let doc
     try {
       doc = (await loadPdf(bytes)).doc
-      const limit = Math.min(perSource, source.pages.length, doc.numPages)
+      const orderedPages = [...source.pages].sort(
+        (a, b) => (b.score ?? 0) - (a.score ?? 0),
+      )
+      const limit = Math.min(perSource, orderedPages.length, doc.numPages)
       for (let index = 0; index < limit; index += 1) {
         if (images.length >= MAX_IMAGES || totalChars >= MAX_IMAGE_DATA_CHARS) break
-        const pageMeta = source.pages[index]
+        const pageMeta = orderedPages[index]
         const outputPage = pageMeta?.outputPage ?? index + 1
         if (outputPage < 1 || outputPage > doc.numPages) continue
         const page = await doc.getPage(outputPage)
@@ -525,11 +536,8 @@ function imageContentBlocks(images: ResearchImage[]) {
 
 export function buildResearchContext(sources: ResearchSource[]): string {
   const maxChars = 110_000
-  const blocks: string[] = []
-  let total = 0
-  let truncated = false
-
-  for (const source of sources) {
+  const maxPageChars = 12_000
+  const prepared = sources.map((source) => {
     const header = [
       `[المصدر: ${source.fileName}]`,
       `العنوان: ${source.citation.title}`,
@@ -541,27 +549,47 @@ export function buildResearchContext(sources: ResearchSource[]): string {
       `المرجع الكامل: ${source.citation.reference}`,
       'الصفحات:',
     ].join('\n')
-    let block = header
-    for (const page of source.pages) {
+    return {
+      source,
+      header,
+      pages: [...source.pages].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)),
+      selected: [] as Array<{ page: ResearchPageSource; section: string }>,
+    }
+  })
+
+  let total = prepared.reduce((sum, item) => sum + item.header.length, 0)
+  let cursor = 0
+  let added = true
+  while (added && total < maxChars) {
+    added = false
+    for (const item of prepared) {
+      const page = item.pages[cursor]
+      if (!page) continue
+      const pageText =
+        page.text.length > maxPageChars
+          ? `${page.text.slice(0, maxPageChars)}\n[نهاية مقتصرة بسبب حد الصفحة]`
+          : page.text
       const section = `--- الصفحة المطبوعة: ${
         page.printedPage || '[رقم الصفحة غير واضح]'
-      } ---\n${page.text}\n`
-      if (total + block.length + section.length > maxChars) {
-        truncated = true
-        break
-      }
-      block += `\n${section}`
+      } ---\n${pageText}\n`
+      if (total + section.length > maxChars) continue
+      item.selected.push({ page, section })
       total += section.length
+      added = true
     }
-    blocks.push(block)
-    total += header.length
-    if (total >= maxChars) {
-      truncated = true
-      break
-    }
+    cursor += 1
   }
 
-  if (truncated) blocks.push('\n[ملاحظة: اختُصرت بعض المقاطع بسبب حد السياق.]')
+  const truncated = prepared.some((item) => item.selected.length < item.pages.length)
+  const blocks = prepared
+    .filter((item) => item.selected.length > 0)
+    .map(
+      (item) =>
+        `${item.header}\n${item.selected.map((entry) => entry.section).join('\n')}`,
+    )
+  if (truncated) {
+    blocks.push('\n[ملاحظة: وُزّعت المقاطع على المصادر حسب الصلة وحدود السياق.]')
+  }
   return blocks.join('\n\n')
 }
 
@@ -577,6 +605,7 @@ export function collectResearchSources(results: SourceResult[]): ResearchSource[
           text: page.text,
           pdfPage: page.pdfPage,
           outputPage: page.outputPage,
+          score: page.score,
         }))
       return {
         fileName: result.fileName,
@@ -614,6 +643,10 @@ export async function askResearcher(
     practical
       ? 'طلب المستخدم صراحةً نتائج ميدانية/إحصائية؛ يجوز ذكرها ضمن الحدود المطلوبة.'
       : 'المستخدم لم يطلب نتائج ميدانية أو إحصائية؛ التزم بالإطار النظري والمفاهيم فقط، ولا تذكر أرقام العينة أو الجداول أو ألفا كرونباخ أو المتوسطات أو الفرضيات.'
+  }\n${
+    sources.length > 1
+      ? `لديك ${sources.length} مصادر مرفقة. وزّع التوثيق بينها بحسب الصلة، ولا تجعل كل الفقرات من مصدر واحد.`
+      : ''
   }\n\nالمصادر المتاحة (لا تخرج عنها):\n${context}\n\n${
     images.length > 0
       ? 'أُرفقت أيضًا صور للصفحات المستخرجة. استخدم الصور للتحقق البصري من النص وأرقام الصفحات المطبوعة، واعتمد على النص والصور معًا.'
